@@ -1,0 +1,165 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// ===================== USER =====================
+model User {
+  id              String   @id @default(cuid())
+  firstName       String
+  lastName        String
+  email           String   @unique
+  phone           String?  @unique
+  password        String
+
+  balance         Int      @default(0)
+  
+  promoCode String? @unique   // MUST BE OPTIONAL
+  referredById String?
+  referredBy   User? @relation("UserReferral", fields: [referredById], references: [id])
+  referrals    User[] @relation("UserReferral")
+  lockedBalance   Int      @default(0)
+  totalDeposited  Int      @default(0)
+  totalWithdrawn  Int      @default(0)
+
+  gamesPlayed     Int      @default(0)
+  wins            Int      @default(0)
+  losses          Int      @default(0)
+
+  isVerified      Boolean  @default(false)
+  isBanned        Boolean  @default(false)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lastActiveAt    DateTime?
+  role            String   @default("user")
+
+  deposits        DepositRequest[]
+  withdraws       WithdrawRequest[]
+  transactions    Transaction[]
+  rooms           Room[]        @relation("RoomHost")
+  participations  RoomPlayer[]
+
+
+  matchPlayers    MatchPlayer[]
+  isAI            Boolean   @default(false)
+}
+
+
+model Room {
+  id           String   @id @default(cuid())
+
+  gameType     String?  
+  targetScore  Int     @default(30)
+  maxPlayers   Int?         
+  isPublic     Boolean @default(true)
+
+
+  entryFee     Int      @default(0) // PAISA
+  status       String   @default("WAITING")
+
+  hostId       String?     
+  host         User?   @relation("RoomHost", fields: [hostId], references: [id])
+
+  createdAt    DateTime @default(now())
+  players      RoomPlayer[]
+}
+
+
+model RoomPlayer {
+  id        String   @id @default(cuid())
+  roomId   String
+  userId   String
+
+  room     Room @relation(fields: [roomId], references: [id])
+  user     User @relation(fields: [userId], references: [id])
+
+  joinedAt DateTime @default(now())
+
+  @@unique([roomId, userId])
+}
+model Match {
+  id          String   @id @default(cuid())
+
+  gameType    String   // "CALLBREAK" | "SEVEN" | "LUDO"
+  stake       Int      // PAISA, per player
+
+  status      String   // "WAITING" | "PLAYING" | "FINISHED" | "CANCELLED"
+
+  roomId      String?  // runtime room reference (socket server)
+  
+  createdAt   DateTime @default(now())
+  finishedAt  DateTime?
+
+  players     MatchPlayer[]
+}
+model MatchPlayer {
+  id        String   @id @default(cuid())
+  matchId  String
+  userId   String
+
+  isWinner Boolean?
+  score    Int?
+
+  match Match @relation(fields: [matchId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@unique([matchId, userId])
+}
+
+model DepositRequest {
+  id         String   @id @default(cuid())
+  userId     String
+  method     String
+  amount     Int
+  trxId      String   @unique
+  status     String   @default("pending")
+  createdAt  DateTime @default(now())
+  approvedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model WithdrawRequest {
+  id          String   @id @default(cuid())
+  userId      String
+  method      String
+  amount      Int
+  account     String
+  status      String   @default("pending")
+  createdAt   DateTime @default(now())
+  processedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+
+model Transaction {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+
+  // "DEPOSIT" | "WITHDRAW" | "WIN" | "LOSS"
+  type       String
+
+  amount     Int
+
+  // "PENDING" | "COMPLETED" | "FAILED"
+  status     String
+
+  // "BKASH" | "NAGAD" | "ROCKET"
+  provider   String?
+  reference  String?
+
+  createdAt  DateTime @default(now())
+}

@@ -1,0 +1,23 @@
+[
+  {
+    "slug": "wuoul",
+    "title": "Wuoul",
+    "description": "hjgkjbm",
+    "image": "/images/card-game.jpg",
+    "date": "2025-12-30"
+  },
+  {
+    "slug": "welcome",
+    "title": "Welcome to the Platform",
+    "description": "Why we built this platform",
+    "date": "2025-09-10",
+    "image": "/images/card-game.jpg"
+  },
+  {
+    "slug": "fair-play",
+    "title": "How Fair Play Works",
+    "description": "Transparency & randomness explained",
+    "date": "2025-09-11",
+    "image": "/images/card-game.jpg"
+  }
+]
