@@ -75,6 +75,7 @@ export default function LudoBoard({
   
   const winningAmountp = winningAmount ?? room?.winningAmount ?? 0;
   const safeWinningAmount = winningAmountp / 100;
+  const [rolling, setRolling] = useState(false);
 
 
   const [viewport, setViewport] = React.useState({
@@ -166,6 +167,13 @@ export default function LudoBoard({
     blue: "#1E88E5",
     yellow: "#FDD835",
   };
+
+  const glowRing = (color, strength = 1) => `
+    0 0 ${12 * strength}px ${color},
+    0 0 ${24 * strength}px ${color}99,
+    0 0 ${40 * strength}px ${color}66
+  `;
+
 
   const faded = {
     red: "#e72f2f",
@@ -380,6 +388,14 @@ export default function LudoBoard({
     </div>
   );
 
+  useEffect(() => {
+    if (dice == null) return;
+
+    setRolling(true);
+    const t = setTimeout(() => setRolling(false), 400);
+
+    return () => clearTimeout(t);
+  }, [dice]);
 
 
   const homeBlocks = {
@@ -525,15 +541,27 @@ return (
                   transform: `scale(${HUD_SCALE * HUD_MOBILE_SCALE})`,
                   transformOrigin: HUD_ORIGIN,
 
-                  boxShadow: `
-                    0 6px 16px rgba(0,0,0,0.45),
-                    inset 0 1px 0 rgba(255,255,255,0.25)
-                  `,
+                  boxShadow: isTurn
+                    ? `
+                        0 0 0 2px ${colors[player.color]},
+                        0 0 8px ${colors[player.color]}aa,
+                        inset 0 1px 0 rgba(255,255,255,0.35)
+                      `
+
+                    : `
+                        0 6px 16px rgba(0,0,0,0.45),
+                        inset 0 1px 0 rgba(255,255,255,0.25)
+                      `,
+                  animation: isTurn
+                    ? "hudGlow 2.6s infinite ease-in-out"
+                    : "none",
+
                 }}
               >
                 {isTurn && !isMobile && diceFirst && (
                   <Dice value={dice ?? 1} scale={DICE_SCALE} />
                 )}
+
 
                 <span
                   style={{
@@ -762,11 +790,33 @@ return (
                   0 0 24px currentColor;
                 animation: pulse 1.4s infinite;
               }
+              @keyframes hudGlow {
+                0% {
+                  box-shadow:
+                    0 0 0 3px currentColor,
+                    0 0 12px currentColor;
+                }
+                50% {
+                  box-shadow:
+                    0 0 0 3px currentColor,
+                    0 0 32px currentColor;
+                }
+                100% {
+                  box-shadow:
+                    0 0 0 3px currentColor,
+                    0 0 12px currentColor;
+                }
+              }
 
               @keyframes pulse {
                 0% { transform: scale(1); }
                 50% { transform: scale(1.06); }
                 100% { transform: scale(1); }
+              }
+              @keyframes dicePulse {
+                0%   { box-shadow: 0 0 12px currentColor; }
+                50%  { box-shadow: 0 0 32px currentColor; }
+                100% { box-shadow: 0 0 12px currentColor; }
               }
 
               .dice {
@@ -790,6 +840,13 @@ return (
           {isMobile && boardRef.current && currentTurn && (() => {
             const rect = boardRef.current.getBoundingClientRect();
             const viewportH = window.innerHeight;
+            const activePlayer = Object.values(playersData)
+              .find(p => p.playerId === currentTurn);
+
+            const activeColor = activePlayer
+              ? colors[activePlayer.color]
+              : "#fff";
+
 
             const freeSpace = viewportH - (rect.top + rect.height);
             const diceTop = rect.top + rect.height + freeSpace / 2 - 36;
@@ -804,28 +861,33 @@ return (
                   zIndex: 5000,
                 }}
               >
-                <div
-                  onClick={onRoll}
-                  style={{
-                    width: 72,
-                    height: 72,
-                    borderRadius: 16,
-                    background: "linear-gradient(145deg, #ffffff, #dcdcdc)",
-                    boxShadow: `
-                      inset -4px -4px 8px rgba(0,0,0,0.12),
-                      inset 4px 4px 8px rgba(255,255,255,0.9),
-                      0 16px 32px rgba(0,0,0,0.45)
-                    `,
-                    display: "grid",
-                    placeItems: "center",
-                    fontSize: 28,
-                    fontWeight: 900,
-                    color: "#111",
-                    cursor: "pointer",
-                    userSelect: "none",
-                    border: "2px solid rgba(0,0,0,0.15)",
-                  }}
-                >
+              <div
+                onClick={onRoll}
+                style={{
+                  width: 72,
+                  height: 72,
+                  borderRadius: 12,
+                  background: "linear-gradient(145deg, #ffffff, #dcdcdc)",
+                  display: "grid",
+                  placeItems: "center",
+                  fontSize: 28,
+                  fontWeight: 900,
+                  color: "#111",
+                  cursor: "pointer",
+                  userSelect: "none",
+                  boxShadow: `
+                    inset -4px -4px 8px rgba(0,0,0,0.12),
+                    inset 4px 4px 8px rgba(255,255,255,0.9),
+                    ${glowRing(activeColor, 1.1)}
+                  `,
+                  border: `3px solid ${activeColor}`,
+                  animation: "dicePulse 1.6s infinite",
+                  transform: rolling ? "rotate(360deg)" : "rotate(0deg)",
+                  transition: "transform 0.4s ease",
+
+                }}
+              >
+
                   {dice ?? 1}
                 </div>
               </div>
