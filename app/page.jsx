@@ -1,5 +1,5 @@
 "use client";
-
+import { v4 as uuidv4 } from "uuid";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSocket } from "@/components/SocketProvider";
@@ -26,13 +26,25 @@ export default function Home() {
   const [cardGameMode, setCardGameMode] = useState("callbreak");
   const [targetScore, setTargetScore] = useState(30);
 
-  const startDemoCardGame = (mode) => {
-    const demoRoomId = `demo-${mode}-${crypto.randomUUID().slice(0, 6)}`;
+  const startDemoCardGame = (mode, matchType = "per-lead") => {
+    const demoRoomId = `demo-${mode}-${uuidv4().slice(0, 6)}`;
+
+    socket.emit("create-demo-room", {
+      roomId: demoRoomId,
+      gameType: mode,
+      matchType,          // ✅ THIS IS KEY
+      targetScore: 30,
+      maxRounds: matchType === "per-lead" ? 1 : null,
+      bots: 3,
+    });
+
     router.push(`/game/cards/${demoRoomId}?mode=${mode}&demo=1`);
   };
 
+
+
   const startDemoLudo = () => {
-    const demoRoomId = `demo-ludo-${crypto.randomUUID().slice(0, 6)}`;
+    const demoRoomId = `demo-ludo-${uuidv4().slice(0, 6)}`;
     router.push(`/game/ludo/${demoRoomId}?demo=1`);
   };
 
@@ -48,7 +60,7 @@ export default function Home() {
 
     let pid = localStorage.getItem("playerId");
     if (!pid) {
-      pid = "p-" + crypto.randomUUID().slice(0, 8);
+      const pid = "p-" + uuidv4().slice(0, 8);
       localStorage.setItem("playerId", pid);
     }
     setPlayerId(pid);
@@ -105,7 +117,7 @@ export default function Home() {
   };
 
   // ===== CREATE CARD ROOM =====
-  const createCardRoom = async ({ mode, targetScore, entryFee }) => {
+  const createCardRoom = async ({ mode, matchType , targetScore, entryFee }) => {
     if (!socketReady || !socket) {
       alert("Game server not ready yet, please wait 1–2 seconds");
       return;
@@ -125,6 +137,7 @@ export default function Home() {
       body: JSON.stringify({
         action: "CREATE",
         gameType: mode,
+        matchType,
         targetScore,
         entryFee: Number(entryFee) * 100, // convert to paisa ONCE
         maxPlayers: 4,
@@ -215,7 +228,7 @@ export default function Home() {
               title="CallBreak Practice"
               description="Play CallBreak with AI opponents. Free & unlimited."
               gameImage="/images/card-game.jpg"
-              onJoin={() => requireAuth(() => startDemoCardGame("callbreak"))}
+              onJoin={() => requireAuth(() => startDemoCardGame("callbreak", "per-lead"))}
             />
 
             {/* SEVEN CALLS DEMO */}
@@ -223,7 +236,7 @@ export default function Home() {
               title="Seven Calls Practice"
               description="Practice Seven Calls against smart AI bots."
               gameImage="/images/sevencall-img-demo.jpg"
-              onJoin={() => requireAuth(() => startDemoCardGame("seven"))}
+              onJoin={() => requireAuth(() => startDemoCardGame("seven", "per-lead"))}
             />
 
             {/* LUDO DEMO — 🔥 LUDO BACKGROUND */}

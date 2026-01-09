@@ -11,12 +11,14 @@ export function CreateRoomModal({
   onCreate,
   userBalance,
 }) {
-
   const [mode, setMode] = useState("");
+
+  // 🆕 MATCH TYPE
+  const [matchType, setMatchType] = useState("target"); // "target" | "per-lead"
+
   const [targetScore, setTargetScore] = useState(100);
   const [isPaid, setIsPaid] = useState(false);
   const [entryFee, setEntryFee] = useState(50);
-
 
   if (!open) return null;
 
@@ -44,17 +46,15 @@ export function CreateRoomModal({
       return;
     }
 
-
     await onCreate({
       mode,
-      targetScore,
+      matchType, // ✅ SEND TO SERVER
+      targetScore: matchType === "target" ? targetScore : null,
       entryFee: isPaid ? entryFee : 0,
     });
 
     onClose();
   };
-
-
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
@@ -63,9 +63,9 @@ export function CreateRoomModal({
           <X />
         </button>
 
-        <h2 className="text-xl font-bold text-white">Create Paid Room</h2>
+        <h2 className="text-xl font-bold text-white">Create Room</h2>
 
-        {/* MODE */}
+        {/* GAME MODE */}
         <div>
           <label className="text-sm text-white/70">Game Mode</label>
           <div className="grid grid-cols-2 gap-2 mt-2">
@@ -85,20 +85,50 @@ export function CreateRoomModal({
           </div>
         </div>
 
-        {/* SCORE */}
+        {/* 🆕 MATCH TYPE */}
         <div>
-          <label className="text-sm text-white/70">Target Score</label>
-          <input
-            type="number"
-            min={50}
-            step={10}
-            value={targetScore}
-            onChange={(e) => setTargetScore(+e.target.value)}
-            className="w-full mt-2 bg-gray-800 border border-white/10 rounded-lg p-2 text-white"
-          />
+          <label className="text-sm text-white/70">Match Type</label>
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={() => setMatchType("target")}
+              className={`px-3 py-2 rounded ${
+                matchType === "target"
+                  ? "bg-emerald-600"
+                  : "bg-gray-800"
+              }`}
+            >
+              Target Score
+            </button>
+
+            <button
+              onClick={() => setMatchType("per-lead")}
+              className={`px-3 py-2 rounded ${
+                matchType === "per-lead"
+                  ? "bg-emerald-600"
+                  : "bg-gray-800"
+              }`}
+            >
+              Per Lead (1 Round)
+            </button>
+          </div>
         </div>
 
-        {/* ENTRY */}
+        {/* 🎯 TARGET SCORE (ONLY FOR TARGET MODE) */}
+        {matchType === "target" && (
+          <div>
+            <label className="text-sm text-white/70">Target Score</label>
+            <input
+              type="number"
+              min={50}
+              step={10}
+              value={targetScore}
+              onChange={(e) => setTargetScore(+e.target.value)}
+              className="w-full mt-2 bg-gray-800 border border-white/10 rounded-lg p-2 text-white"
+            />
+          </div>
+        )}
+
+        {/* ROOM TYPE */}
         <div>
           <label className="text-sm text-white/70">Room Type</label>
           <div className="flex gap-2 mt-2">
@@ -135,7 +165,6 @@ export function CreateRoomModal({
             />
           </div>
         )}
-
 
         <Button className="w-full bg-emerald-600" onClick={submit}>
           Create Room

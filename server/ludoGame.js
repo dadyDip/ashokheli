@@ -6,6 +6,7 @@ function isCapturablePos(pos) {
   return typeof pos === "number" && pos >= 0 && pos <= GLOBAL_MAX_POS;
 }
 
+
 export function setupLudoGame(io) {
   const rooms = {};
   const socketToPlayer = new Map();
@@ -49,9 +50,16 @@ export function setupLudoGame(io) {
     room.dice = null;
     room.hasRolled = false;
     room.isMoving = false;
-    room.sixCount[currentPlayerId] = 0;
   }
 
+
+  function shouldKeepTurn(room, moveResult, playerId) {
+    if (moveResult?.captured) return true;
+    if (moveResult?.finished) return true;
+    if (room.dice === 6) return true;
+
+    return false;
+  }
 
     // ---------------- MOVEMENT ---------------- //
   function canPlayerMove(room, playerId, dice) {
@@ -75,64 +83,56 @@ export function setupLudoGame(io) {
     });
     return moves;
   }
-  async  function performMove(room, playerId, pieceIndex) {
+  function performMove(room, playerId, pieceIndex) {
     if (!room?.playersData) return null;
 
     const player = room.playersData[playerId];
     if (!player) return null;
-    let finished = false;
 
+    let finished = false;
+    let won = false;
 
     let pos = player.pieces[pieceIndex];
 
     // -------- MOVE LOGIC --------
-    if (pos === -1) pos = 0; // from home
+    if (pos === -1) pos = 0;
     else pos += room.dice;
-
-    // Clamp to final finish
-    const maxPos = pathLength + stretchLen;
-
 
     player.pieces[pieceIndex] = pos;
 
-    // Resolve position to global index / stretch / finish
     const landed = mapPosForClient(player.color, pos);
 
-    // -------- CAPTURE LOGIC --------
-// -------- CAPTURE LOGIC --------
-    const captured = handleCapture(
-      room,
-      playerId,
-      pieceIndex,
-      pos
-    );
+    // -------- CAPTURE --------
+    const captured = handleCapture(room, playerId, pieceIndex, pos);
 
-    // -------- WINNER / FINISH CHECK --------
+    // -------- FINISH --------
     if (pos === FINAL_CELL) {
       finished = true;
-      console.log(`🎉 Token ${player.color}#${pieceIndex} finished`);
+      room.sixCount[playerId] = 0;
     }
 
+    if (captured) {
+      room.sixCount[playerId] = 0;
+    }
+
+    // -------- WIN --------
     if (isWinner(player)) {
-      console.log(`🏆 ${playerId} (${player.color}) has won!`);
-
-      io.to(room.roomId).emit("player-won", {
-        playerId,
-        color: player.color,
-      });
-
+      won = true;
       room.phase = "ended";
-      room.winningAmount = Number(room.entryFee) * Number(room.maxPlayers);
-      const winnerUserId = player.userId;
-
-      if (!room.isDemo) {
-        await settleMatch(room.matchId, winnerUserId);
-      }
-
+      room.winner = playerId;
+      room.winningAmount =
+        Number(room.entryFee) * Number(room.maxPlayers);
     }
 
-
-    return { playerId, pieceIndex, newPos: pos, global: landed , captured ,finished , };
+    return {
+      playerId,
+      pieceIndex,
+      newPos: pos,
+      global: landed,
+      captured,
+      finished,
+      won,
+    };
   }
 
   function handleCapture(room, attackerId, pieceIndex, newPos) {
@@ -201,7 +201,7 @@ export function setupLudoGame(io) {
         }
 
         runAI(roomId, playerId); // proceed to move
-      }, 3000);
+      }, 300);
 
       return;
     }
@@ -217,13 +217,28 @@ export function setupLudoGame(io) {
 
     const pieceIndex = moves[Math.floor(Math.random() * moves.length)];
     const result = performMove(room, playerId, pieceIndex);
-
-    const rolled = room.dice;
-    room.dice = null;
-
-    if (rolled !== 6 && !result.captured) {
+    const keepTurn = shouldKeepTurn(room, result, playerId);
+    if (keepTurn) {
+      room.dice = null;
+      room.hasRolled = false;
+      room.sixCount[playerId] = 0;
+    } else {
+      room.sixCount[playerId] = 0;
       advanceTurn(room, playerId);
     }
+    if (
+      result.won &&
+      !room.isDemo &&
+      !room.settled
+    ) {
+      room.settled = true;
+
+      settleMatch(
+        room.matchId,
+        room.playersData[playerId].userId
+      ).catch(console.error);
+    }
+
 
     emitRoom(roomId);
     maybeTriggerAI(roomId);
@@ -245,7 +260,7 @@ export function setupLudoGame(io) {
     setTimeout(() => {
       room._aiThinking = false;
       runAI(roomId, pid);
-    }, 2000);
+    }, 200);
   }
 
 
@@ -316,6 +331,7 @@ export function setupLudoGame(io) {
           entryFee,
           winningAmount: Number(entryFee) * Number(maxPlayers),
           matchId: null,
+          settled: false,
           playersData: {},
           order: [],
           turn: null,
@@ -499,7 +515,7 @@ export function setupLudoGame(io) {
           room.dice = null;
           room.hasRolled = false;
           room.isMoving = false;
-          room.turn = nextTurnId(room, playerId);
+          advanceTurn(room, playerId);
 
           emitRoom(roomId);
           maybeTriggerAI(roomId);
@@ -512,8 +528,7 @@ export function setupLudoGame(io) {
       // auto-pass if no moves
       if (!canPlayerMove(room, playerId, dice)) {
         console.log(`⛔ ${playerId} cannot move with dice=${dice}, passing turn`);
-
-        room.turn = nextTurnId(room, playerId);
+        advanceTurn(room, playerId);
         room.dice = null;
         room.hasRolled = false;
         room.isMoving = false; // ✅ REQUIRED
@@ -532,60 +547,67 @@ export function setupLudoGame(io) {
       const room = rooms[roomId];
       if (!room) return;
 
+      // ❌ not your turn
       if (room.turn !== playerId) return;
 
+      // ❌ must roll first
       if (room.dice == null) {
         console.log("🚫 Move blocked: roll dice first");
-
-        // 🔴 FORCE CLIENT BACK TO ROLL STATE
-        io.to(roomId).emit("update-room", roomSummary(room));
+        emitRoom(roomId);
         return;
       }
 
+      // ❌ prevent double moves
       if (room.isMoving) return;
-
       room.isMoving = true;
 
       const validMoves = listValidMoves(room, playerId, room.dice);
 
+      // ❌ invalid click
       if (!validMoves.includes(pieceIndex)) {
         console.log(`🚫 Invalid move click by ${playerId}`);
-
-        room.isMoving = false; // unlock
-
+        room.isMoving = false;
         emitRoom(roomId);
-
         return;
       }
 
-
+      // ================= PERFORM MOVE =================
       const moveResult = performMove(room, playerId, pieceIndex);
-
-      const rolled = room.dice;
-
-      // 🔓 RESET STATE (ALWAYS)
-      room.dice = null;
-      room.hasRolled = false;
       room.isMoving = false;
 
-      if (
-        (rolled === 6 && room.sixCount[playerId] < 3) ||
-        moveResult.captured ||
-        moveResult.finished
-      ) {
-        console.log(
-          `🔁 ${playerId} gets extra turn${
-            moveResult.finished ? " (finish)" : moveResult.captured ? " (capture)" : ""
-          }`
-        );
-      } else {
-        room.turn = nextTurnId(room, playerId);
-        maybeTriggerAI(roomId);
-      }
-      io.to(roomId).emit("animate-move", { ...moveResult, dice: rolled });
-      emitRoom(roomId);
+      const keepTurn = shouldKeepTurn(room, moveResult, playerId);
 
+      if (keepTurn) {
+        room.dice = null;
+        room.hasRolled = false;
+        room.sixCount[playerId] = 0;
+      } else {
+        room.sixCount[playerId] = 0;
+        advanceTurn(room, playerId);
+      }
+      // ================= WIN SETTLEMENT =================
+      if (
+        moveResult.won &&
+        !room.isDemo &&
+        !room.settled
+      ) {
+        room.settled = true;
+
+        settleMatch(
+          room.matchId,
+          room.playersData[playerId].userId
+        ).catch(console.error);
+      }
+
+      // ================= EMITS =================
+      io.to(roomId).emit("animate-move", {
+        ...moveResult,
+        dice: room.dice,
+      });
+
+      emitRoom(roomId);
     });
+
 
     socket.on("piece-captured", () => {
       playSound("cut");
@@ -613,7 +635,7 @@ export function setupLudoGame(io) {
           console.log("🤖 AI TOOK OVER", { roomId, playerId });
           maybeTriggerAI(roomId);
         }
-      }, 10_000);
+      }, 50_000);
 
       // Cleanup if everyone left
       setTimeout(() => {

@@ -18,7 +18,7 @@ export function startCallBreak(room) {
   });
 
   if (!room.round) room.round = 1;
-  if (!room.dealerIndex) room.dealerIndex = 0;
+  if (room.dealerIndex === undefined) room.dealerIndex = 0;
 
   room.phase = "bidding";
   room.playedCards = [];
@@ -30,7 +30,9 @@ export function startCallBreak(room) {
   // 🔥 Trump revealed BEFORE bidding (Bangladeshi rule)
   room.trumpCard = deck[deck.length - 1];
   room.trumpSuit = room.trumpCard.suit;
-
+  room.tricksPlayed = 0;
+  room.roundToken = (room.roundToken || 0) + 1;
+  room.trumpUnlocked = false;
   // deal cards
   const hands = deal(deck, room.order, 13);
 
@@ -72,27 +74,6 @@ export function placeBid(room, pid, bid) {
   nextTurn(room);
 }
 
-
-function rank(value) {
-  const order = {
-    "2": 2,
-    "3": 3,
-    "4": 4,
-    "5": 5,
-    "6": 6,
-    "7": 7,
-    "8": 8,
-    "9": 9,
-    "10": 10,
-    J: 11,
-    Q: 12,
-    K: 13,
-    A: 14,
-  };
-  return order[value] || 0;
-}
-
-
 /* =====================================================
    PLAY CARD (Updated)
 ===================================================== */
@@ -110,37 +91,72 @@ export function playCard(io, room, pid, card) {
   const idx = p.hand.findIndex(c => c.suit === card.suit && c.value === card.value);
   if (idx === -1) return;
 
+
+  const leadSuit = room.playedCards[0]?.card?.suit;
+  const hasLeadSuit = leadSuit
+    ? p.hand.some(c => c.suit === leadSuit)
+    : false;
+
+  const isLeading = room.playedCards.length === 0;
+  // ❌ Cannot lead trump while locked
+  if (
+    isLeading &&
+    !room.trumpUnlocked &&
+    card.suit === room.trumpSuit
+  ) {
+    console.log("❌ Cannot lead locked trump");
+    return;
+  }
+
+  // ❌ Must follow lead suit if possible
+  if (
+    leadSuit &&
+    hasLeadSuit &&
+    card.suit !== leadSuit
+  ) {
+    console.log("❌ Must follow lead suit");
+    return;
+  }
+
   // Remove card from hand
   const [played] = p.hand.splice(idx, 1);
   room.playedCards.push({ pid, card: played });
 
   console.log("🃏 PLAY", pid, played);
+  // ✅ Unlock trump ONLY when cutting (not following lead suit)
+  if (
+    leadSuit &&
+    card.suit === room.trumpSuit &&
+    card.suit !== leadSuit
+  ) {
+    room.trumpUnlocked = true;
+    console.log("🔓 Trump unlocked by cut");
+  }
 
-  // Check if trick is complete
-  if (room.playedCards.length === 4) {
-    // Resolve trick first
-    resolveTrick(io, room);
+  if (room.playedCards.length === room.order.length) {
+    if (room.resolvingTrick) return; // 🛑 BLOCK DUPLICATES
 
-    // Emit room update
+    room.resolvingTrick = true;
+
     io.to(room.roomId).emit("update-room", room);
-    return;
+
+    setTimeout(() => {
+      resolveTrick(io, room);
+    }, 1000);
+  } else {
+    nextTurn(room);
+    io.to(room.roomId).emit("update-room", room);
   }
 
-  // Move to next turn
-  const nextPid = nextTurn(room);
   io.to(room.roomId).emit("update-room", room);
-
-  // Trigger AI if next turn is AI
-  const nextPlayer = room.playersData[nextPid];
-  if (nextPlayer?.isAI && !nextPlayer.connected) {
-    setTimeout(() => triggerAITurn(io, room), 200);
-  }
 }
+
 
 /* =====================================================
    RESOLVE TRICK (Fixed)
 ===================================================== */
 export function resolveTrick(io, room) {
+  if (!room.resolvingTrick) return;
   if (!room.playedCards || room.playedCards.length === 0) return;
 
   const leadSuit = room.playedCards[0].card.suit;
@@ -173,6 +189,8 @@ export function resolveTrick(io, room) {
 
   // ✅ Increment tricks
   winnerPlayer.tricks = (winnerPlayer.tricks || 0) + 1;
+  room.tricksPlayed += 1;
+
 
   // ✅ Clear played cards
   room.playedCards = [];
@@ -184,9 +202,13 @@ export function resolveTrick(io, room) {
 
   // Check round end
   checkRoundEnd(room);
+  room.resolvingTrick = false;
 
   // Emit update for all
   if (io) io.to(room.roomId).emit("update-room", room);
+    setTimeout(() => {
+    triggerAITurn(io, room);
+  }, 200);
 }
 
 
@@ -194,31 +216,37 @@ export function resolveTrick(io, room) {
    ROUND END & SCORING
 ===================================================== */
 function checkRoundEnd(room) {
-  const done = room.order.every(
-    pid => room.playersData[pid].hand.length === 0
-  );
-  if (!done) return;
+  if (room.tricksPlayed < 13) return;
 
+  // 🧮 Always score the round
   scoreRound(room);
 
+  // 🆕 PER-LEAD MODE → END MATCH IMMEDIATELY
+  if (room.matchType === "per-lead") {
+    console.log("🧠 Per-lead match finished");
+    endGame(room);
+    return;
+  }
+
+  // 🔁 TARGET MODE (existing logic)
   const target = room.targetScore || 30;
 
-  // ✅ check if someone reached target
   const reached = room.order.find(
     pid => room.playersData[pid].score >= target
   );
 
   if (reached) {
-    endGame(room); // ✅ END ONLY HERE
+    endGame(room);
     return;
   }
 
-  // 🔁 CONTINUE GAME
+  // continue to next round
   room.round++;
   room.dealerIndex = (room.dealerIndex + 1) % 4;
 
-  startCallBreak(room); // ✅ NEXT ROUND ONLY
+  startCallBreak(room);
 }
+
 
 
 function scoreRound(room) {

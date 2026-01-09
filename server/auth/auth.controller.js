@@ -1,7 +1,8 @@
 import prisma from "../prisma.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import crypto from "crypto";
+import { v4 as uuidv4 } from "uuid";
+
 
 const JWT_SECRET = "SUPER_SECRET_KEY"; // move to .env later
 const DEMO_BALANCE = 100000; // 1000 TK in paisa
@@ -60,7 +61,7 @@ export const register = async (req, res) => {
     }
 
     // Generate a unique promo code for new user
-    const newPromoCode = "DOF" + crypto.randomBytes(3).toString("hex").toUpperCase();
+    const newPromoCode = "DOF" + uuidv4().replace(/-/g, "").slice(0, 6).toUpperCase();
 
     // Calculate starting balance
     let startingBalance = DEMO_BALANCE;

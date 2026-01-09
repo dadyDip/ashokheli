@@ -1,11 +1,12 @@
 import prisma from "../server/prisma.js";
-import crypto from "crypto";
+import { v4 as uuidv4 } from "uuid";
+
 
 async function main() {
   const users = await prisma.user.findMany({ where: { promoCode: null } });
 
   for (const user of users) {
-    const code = "DOF" + crypto.randomBytes(3).toString("hex").toUpperCase();
+    const code = "DOF" + uuidv4().replace(/-/g, "").slice(0, 6).toUpperCase();
     await prisma.user.update({
       where: { id: user.id },
       data: { promoCode: code },

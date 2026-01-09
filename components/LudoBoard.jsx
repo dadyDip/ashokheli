@@ -57,6 +57,24 @@ function useLudoSounds() {
   };
 }
 
+function PlayerIcon({ color }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      style={{ color }}
+    >
+      <path
+        d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12Zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8V22h19.2v-2.8c0-3.2-6.4-4.8-9.6-4.8Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+
 export default function LudoBoard({
 
   phase,
@@ -168,13 +186,6 @@ export default function LudoBoard({
     yellow: "#FDD835",
   };
 
-  const glowRing = (color, strength = 1) => `
-    0 0 ${12 * strength}px ${color},
-    0 0 ${24 * strength}px ${color}99,
-    0 0 ${40 * strength}px ${color}66
-  `;
-
-
   const faded = {
     red: "#e72f2f",
     green: "#219d3b",
@@ -224,6 +235,16 @@ export default function LudoBoard({
 
 
   /* ================= HELPERS ================= */
+  const handleRoll = () => {
+    if (rolling) return;
+
+    setRolling(true);
+    playSound("roll");
+    onRoll();
+
+    setTimeout(() => setRolling(false), 500);
+  };
+
   const getCoords = (color, pos) => {
     if (pos >= FINISH_POS) return { x: 7, y: 7 };
     if (pos <= LAST_GLOBAL_POS) {
@@ -368,34 +389,26 @@ export default function LudoBoard({
       {star && "★"}
     </div>
   );
-  const Dice = ({ value }) => (
+  const Dice = ({ value, rolling, onClick }) => (
     <div
-      onClick={onRoll}
-      className="dice"
+      className={`dice ${rolling ? "rolling" : ""}`}
+      onClick={onClick}
       style={{
         width: DICE_SIZE,
         height: DICE_SIZE,
         borderRadius: 8,
         background: "#fff",
-        color:"#000",
+        color: "#000",
         display: "grid",
         placeItems: "center",
         fontWeight: "bold",
         cursor: "pointer",
+        userSelect: "none",
       }}
     >
       {value}
     </div>
   );
-
-  useEffect(() => {
-    if (dice == null) return;
-
-    setRolling(true);
-    const t = setTimeout(() => setRolling(false), 400);
-
-    return () => clearTimeout(t);
-  }, [dice]);
 
 
   const homeBlocks = {
@@ -523,6 +536,7 @@ return (
             return (
               <div
                 key={player.playerId}
+                className={isTurn ? "player-hud active" : "player-hud"}
                 style={{
                   position: "absolute",
                   ...pos,
@@ -532,7 +546,7 @@ return (
                   alignItems: "center",
                   gap: 8,
                   padding: "7px 12px",
-                  borderRadius: 12,
+                  borderRadius: 14,
 
                   background: colors[player.color],
                   color: "#fff",
@@ -542,27 +556,29 @@ return (
                   transformOrigin: HUD_ORIGIN,
 
                   boxShadow: isTurn
-                    ? `
-                        0 0 0 2px ${colors[player.color]},
-                        0 0 8px ${colors[player.color]}aa,
-                        inset 0 1px 0 rgba(255,255,255,0.35)
-                      `
+                    ? "none"
+                    : "0 6px 16px rgba(0,0,0,0.45)",
 
-                    : `
-                        0 6px 16px rgba(0,0,0,0.45),
-                        inset 0 1px 0 rgba(255,255,255,0.25)
-                      `,
-                  animation: isTurn
-                    ? "hudGlow 2.6s infinite ease-in-out"
-                    : "none",
-
+                  overflow: "visible",
                 }}
               >
-                {isTurn && !isMobile && diceFirst && (
-                  <Dice value={dice ?? 1} scale={DICE_SCALE} />
-                )}
 
 
+                {/* 🎮 ICON */}
+                <div
+                  style={{
+                    width: 20,
+                    height: 20,
+                    display: "grid",
+                    placeItems: "center",
+                    borderRadius: "50%",
+                    background: "rgba(0,0,0,0.25)",
+                  }}
+                >
+                  <PlayerIcon color={colors[player.color]} />
+                </div>
+
+                {/* NAME */}
                 <span
                   style={{
                     fontSize: 12 * HUD_SCALE,
@@ -575,8 +591,12 @@ return (
                   {player.name || player.playerId}
                 </span>
 
-                {isTurn && !isMobile && !diceFirst && (
-                  <Dice value={dice ?? 1} scale={DICE_SCALE} />
+                {isTurn && !isMobile && (
+                  <Dice
+                    value={dice ?? 1}
+                    rolling={rolling}
+                    onClick={handleRoll}
+                  />
                 )}
               </div>
             );
@@ -784,69 +804,57 @@ return (
             .animate-stack-pop {
               animation: stack-pop 200ms ease-out;
             }
-              .player-hud.active {
+
+            @keyframes roll {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+
+            .player-hud.active {
+              animation: hud-pulse 1.6s ease-in-out infinite;
+              border: 2px solid rgba(208, 48, 48, 0.15);
+              box-shadow:
+                0 0 0 2px rgba(223, 211, 211, 0.15),
+                0 0 14px currentColor;
+            }
+
+            @keyframes hud-pulse {
+              0% {
+                transform: scale(1);
                 box-shadow:
-                  0 0 12px rgba(255,255,255,0.6),
-                  0 0 24px currentColor;
-                animation: pulse 1.4s infinite;
-              }
-              @keyframes hudGlow {
-                0% {
-                  box-shadow:
-                    0 0 0 3px currentColor,
-                    0 0 12px currentColor;
-                }
-                50% {
-                  box-shadow:
-                    0 0 0 3px currentColor,
-                    0 0 32px currentColor;
-                }
-                100% {
-                  box-shadow:
-                    0 0 0 3px currentColor,
-                    0 0 12px currentColor;
-                }
+                  0 0 0 2px rgba(172, 150, 171, 0.15),
+                  0 0 12px currentColor;
               }
 
-              @keyframes pulse {
-                0% { transform: scale(1); }
-                50% { transform: scale(1.06); }
-                100% { transform: scale(1); }
-              }
-              @keyframes dicePulse {
-                0%   { box-shadow: 0 0 12px currentColor; }
-                50%  { box-shadow: 0 0 32px currentColor; }
-                100% { box-shadow: 0 0 12px currentColor; }
+              50% {
+                transform: scale(1.04);
+                box-shadow:
+                  0 0 0 3px rgba(128, 141, 152, 0.25),
+                  0 0 22px currentColor;
               }
 
-              .dice {
-                animation: roll 0.4s ease;
+              100% {
+                transform: scale(1);
+                box-shadow:
+                  0 0 0 2px rgba(255,255,255,0.15),
+                  0 0 12px currentColor;
               }
+            }
 
-              @keyframes roll {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-              }
+            .dice.rolling {
+              animation: roll 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+            }
 
-              @media (max-width: 480px) {
-                .player-hud {
-                  font-size: 12px;
-                  padding: 4px 8px;
-                }
-              }
-                
+            @keyframes roll {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+            }
+
 
           `}</style>
           {isMobile && boardRef.current && currentTurn && (() => {
             const rect = boardRef.current.getBoundingClientRect();
             const viewportH = window.innerHeight;
-            const activePlayer = Object.values(playersData)
-              .find(p => p.playerId === currentTurn);
-
-            const activeColor = activePlayer
-              ? colors[activePlayer.color]
-              : "#fff";
-
 
             const freeSpace = viewportH - (rect.top + rect.height);
             const diceTop = rect.top + rect.height + freeSpace / 2 - 36;
@@ -861,36 +869,33 @@ return (
                   zIndex: 5000,
                 }}
               >
-              <div
-                onClick={onRoll}
-                style={{
-                  width: 72,
-                  height: 72,
-                  borderRadius: 12,
-                  background: "linear-gradient(145deg, #ffffff, #dcdcdc)",
-                  display: "grid",
-                  placeItems: "center",
-                  fontSize: 28,
-                  fontWeight: 900,
-                  color: "#111",
-                  cursor: "pointer",
-                  userSelect: "none",
-                  boxShadow: `
-                    inset -4px -4px 8px rgba(0,0,0,0.12),
-                    inset 4px 4px 8px rgba(255,255,255,0.9),
-                    ${glowRing(activeColor, 1.1)}
-                  `,
-                  border: `3px solid ${activeColor}`,
-                  animation: "dicePulse 1.6s infinite",
-                  transform: rolling ? "rotate(360deg)" : "rotate(0deg)",
-                  transition: "transform 0.4s ease",
-
-                }}
-              >
-
+                <div
+                  onClick={handleRoll}
+                  className={rolling ? "dice rolling" : "dice"}
+                  style={{
+                    width: 72,
+                    height: 72,
+                    borderRadius: 16,
+                    background: "linear-gradient(145deg, #ffffff, #dcdcdc)",
+                    boxShadow: `
+                      inset -4px -4px 8px rgba(0,0,0,0.12),
+                      inset 4px 4px 8px rgba(255,255,255,0.9),
+                      0 16px 32px rgba(0,0,0,0.45)
+                    `,
+                    display: "grid",
+                    placeItems: "center",
+                    fontSize: 28,
+                    fontWeight: 900,
+                    color: "#111",
+                    cursor: "pointer",
+                    userSelect: "none",
+                    border: "2px solid rgba(0,0,0,0.15)",
+                  }}
+                >
                   {dice ?? 1}
                 </div>
               </div>
+
             );
           })()}
           {room?.phase === "ended" && (
@@ -920,7 +925,7 @@ return (
                 >
                   <h1 style={{ fontSize: 42 }}>🏆 You Win!</h1>
                   <div style={{ marginTop: 12, fontSize: 22 }}>
-                    💰 TK{room.winningAmount}
+                    💰 TK{safeWinningAmount}
                   </div>
                 </div>
               </div>

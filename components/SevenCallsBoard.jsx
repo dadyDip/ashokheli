@@ -5,13 +5,19 @@ import { motion } from "framer-motion";
 import Confetti from "react-confetti";
 import { useCardGame } from "../context/GameContext";
 import { useRouter } from "next/navigation";
+import { useMobileFullscreen } from "@/app/useMobileFullscreen";
 
 import Card from "./Card";
 
 
 const TableContainer = ({ children }) => {
   return (
-    <div className="fixed inset-0 overflow-hidden bg-gradient-to-br from-emerald-950 to-black">
+    <div className="
+      fixed inset-0
+      overflow-hidden
+      touch-none   /* 🔒 */
+      bg-gradient-to-br from-emerald-950 to-black
+    ">
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="relative w-full h-full max-w-[900px] max-h-[900px]">
           {children}
@@ -87,14 +93,73 @@ export default function SevenCallsBoard() {
   if (!room) return <Center>Connecting…</Center>;
   const me = room.playersData?.[playerId];
   if (!me) return <Center>Registering…</Center>;
-
+  const fullscreenReady = useMobileFullscreen();
   const phase = room.phase;
   const order = room.order || [];
   const pendingReveal =
   room.pendingReveal &&
   room.pendingReveal.playerId === me.playerId;
   const [showTrump, setShowTrump] = useState(false);
-  
+  const [rematchVotes, setRematchVotes] = useState({});
+  const scoringType = room.matchType || "target";
+  const targetScore = room.targetScore ?? 30;
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+
+    // ===============================
+    // LOCK PAGE HEIGHT & SCROLL
+    // ===============================
+    html.style.height = "100%";
+    body.style.height = "100%";
+
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+
+    html.style.overscrollBehavior = "none";
+    body.style.overscrollBehavior = "none";
+
+    // ✅ pinch-zoom only
+    body.style.touchAction = "pinch-zoom";
+
+    // ===============================
+    // Prevent zooming out below original size (iOS Safari / Brave)
+    // ===============================
+    const preventZoomOut = (e) => {
+      if (e.scale < 1) e.preventDefault(); // block zoom out
+    };
+
+    const preventScroll = (e) => {
+      e.preventDefault(); // block all swipe/scroll
+    };
+
+    // iOS gestures
+    document.addEventListener("gesturestart", preventZoomOut, { passive: false });
+    document.addEventListener("gesturechange", preventZoomOut, { passive: false });
+
+    // block touch scroll
+    document.addEventListener("touchmove", preventScroll, { passive: false });
+
+    return () => {
+      // ===============================
+      // RESET STYLES / EVENTS
+      // ===============================
+      html.style.height = "";
+      body.style.height = "";
+
+      html.style.overflow = "";
+      body.style.overflow = "";
+
+      html.style.overscrollBehavior = "";
+      body.style.overscrollBehavior = "";
+
+      body.style.touchAction = "";
+
+      document.removeEventListener("gesturestart", preventZoomOut);
+      document.removeEventListener("gesturechange", preventZoomOut);
+      document.removeEventListener("touchmove", preventScroll);
+    };
+  }, []);
 
   useEffect(() => {
     if (room.hiddenPower?.revealed) {
@@ -121,15 +186,68 @@ export default function SevenCallsBoard() {
     if (room.turn === playerId) playSound("turn");
   }, [room.turn]);
 
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on("update-rematch-votes", votes => {
+      setRematchVotes(votes);
+    });
+
+    socket.on("rematch-cancelled", () => {
+      setRematchVotes({});
+      alert("All players declined rematch.");
+    });
+
+    socket.on("start-sevencalls", () => {
+      // Reset client state as well if needed
+      // Example: fetch new room state from server
+    });
+
+    return () => {
+      socket.off("update-rematch-votes");
+      socket.off("rematch-cancelled");
+      socket.off("start-sevencalls");
+    };
+  }, [socket]);
+
+
   /* ===== ROTATION ===== */
   const meIndex = order.indexOf(playerId);
   const rotated =
     meIndex === -1
       ? order
       : [...order.slice(meIndex), ...order.slice(0, meIndex)];
+  const canPlay = (card) => {
+    if (!room || !me) return false;
+    if (room.turn !== playerId) return false;
+
+    // No cards played yet → any card allowed
+    if (room.playedCards.length === 0) return true;
+
+    const leadSuit = room.playedCards[0].card.suit;
+
+    const hasLeadSuit = me.hand.some(c => c.suit === leadSuit);
+
+    // If player has lead suit, MUST play it
+    if (hasLeadSuit) {
+      return card.suit === leadSuit;
+    }
+
+    // Otherwise free to play anything
+    return true;
+  };
 
   const seatMap = ["bottom", "left", "top", "right"];
-
+  {!fullscreenReady && (
+    <div className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center">
+      <div
+        className="text-emerald-300 text-lg font-semibold"
+        onClick={fullscreenReady} // or whatever triggers it
+      >
+        Tap to start game
+      </div>
+    </div>
+  )}
   /* ================= SCORE BOARD ================= */
     const renderScoreHistory = team => {
     const history = room.scoreHistory?.[team];
@@ -189,7 +307,7 @@ export default function SevenCallsBoard() {
         >
           {/* TITLE */}
           <div className="font-semibold mb-1">
-            ♠ Seven Calls — Target {room.targetScore}
+            ♠ Seven Calls — {scoringType === "per-lead" ? "Per Lead (1 Round)" : `Target ${targetScore}`}
           </div>
 
           {/* TEAM NAMES */}
@@ -250,36 +368,27 @@ export default function SevenCallsBoard() {
   if (room.phase === "waiting") {
     const seatPositions = [
       // Bottom (YOU)
-      `
-        bottom-[40px] left-1/2 -translate-x-1/2
-        [@media(max-height:700px)]:bottom-[20px]
-        [@media(max-height:600px)]:bottom-[10px]
-      `,
-
+      `bottom-[40px] left-1/2 -translate-x-1/2
+      [@media(max-height:700px)]:bottom-[20px]
+      [@media(max-height:600px)]:bottom-[10px]`,
       // Left
-      `
-        left-[40px] top-1/2 -translate-y-1/2
-        [@media(max-height:600px)]:left-[80px]
-      `,
-
+      `left-[40px] top-1/2 -translate-y-1/2
+      [@media(max-height:600px)]:left-[80px]`,
       // Top
-      `
-        top-[40px] left-1/2 -translate-x-1/2
-        [@media(max-height:700px)]:top-[100px]
-        [@media(max-height:600px)]:top-[160px]
-      `,
-
+      `top-[40px] left-1/2 -translate-x-1/2
+      [@media(max-height:700px)]:top-[100px]
+      [@media(max-height:600px)]:top-[160px]`,
       // Right
-      `
-        right-[40px] top-1/2 -translate-y-1/2
-        [@media(max-height:600px)]:right-[80px]
-      `,
+      `right-[40px] top-1/2 -translate-y-1/2
+      [@media(max-height:600px)]:right-[80px]`,
     ];
 
+    // Detect portrait mode
+    const isPortrait = typeof window !== "undefined" && window.innerHeight > window.innerWidth;
 
     return (
       <>
-        {/* TOP LEFT LOGO (OUTSIDE SCALE) */}
+        {/* TOP LEFT LOGO */}
         <div className="fixed z-50 top-[env(safe-area-inset-top)] left-[env(safe-area-inset-left)] px-4 py-3">
           <h1
             className="antialiased text-3xl tracking-wide font-semibold bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent"
@@ -327,6 +436,24 @@ export default function SevenCallsBoard() {
               Waiting for players…
             </motion.div>
           </div>
+
+          {/* ROTATE PHONE TIP */}
+          {isPortrait && (
+            <div className="absolute bottom-[80px] left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2 bg-yellow-500/10 rounded-full text-yellow-300 text-sm">
+              <motion.div
+                animate={{ rotate: [0, 15, -15, 0] }}
+                transition={{ repeat: Infinity, duration: 1.5 }}
+              >
+                🔄
+              </motion.div>
+              Rotate your phone for better experience
+            </div>
+          )}
+
+          {/* REFRESH TIP */}
+          <div className="absolute bottom-[30px] left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-yellow-500/10 text-yellow-300 text-xs">
+            Tip: If game gets stuck, just refresh
+          </div>
         </TableContainer>
       </>
     );
@@ -337,6 +464,11 @@ export default function SevenCallsBoard() {
     return (
       <Table>
         <ScoreBoard />
+        <BiddingHeader
+          room={room}
+          order={order}
+          currentTurn={room.turn}
+        />
 
         {/* 5 CARD PREVIEW */}
         <div className="absolute bottom-24 left-1/2 -translate-x-1/2 flex gap-4">
@@ -347,12 +479,32 @@ export default function SevenCallsBoard() {
 
         {/* BID BUTTONS */}
         {room.turn === playerId && me.bid == null && (
-          <div className="absolute inset-0 flex items-center justify-center z-30">
-            <div className="flex gap-6 bg-emerald-950/90 px-6 py-4 rounded-xl shadow-xl">
+          <div
+            className="
+              fixed
+              left-1/2 -translate-x-1/2
+              bottom-[env(safe-area-inset-bottom)]
+              z-50
+
+              w-full max-w-md
+              px-4 pb-3
+              rounded-t-2xl
+            "
+          >
+            <div className="flex gap-3 justify-between">
               {[5, 7, 8, 10].map(bid => (
                 <button
                   key={bid}
-                  className="bid-btn bg-emerald-800 px-6 py-3 rounded-xl text-xl"
+                  className="
+                    flex-1
+                    bg-emerald-800
+                    hover:bg-emerald-700
+                    active:scale-95
+                    py-3
+                    rounded-xl
+                    text-lg
+                    font-semibold
+                  "
                   onClick={() =>
                     socket.emit("place-bid", {
                       roomId: room.roomId,
@@ -367,22 +519,29 @@ export default function SevenCallsBoard() {
             </div>
           </div>
         )}
+
       </Table>
     );
   }
 
   /* ================= POWER SELECT ================= */
   if (phase === "power-select") {
+    if (!me) return <Center>Registering…</Center>;
+
+    const isPowerOwner = room.turn === playerId;
+    const handReady = Array.isArray(me.hand) && me.hand.length > 0;
+
     return (
-      <Table>
+      <Table key={room.powerSelectId}>
         <ScoreBoard />
 
-        {room.highestBidder === playerId && me.powerCard == null ? (
+        {isPowerOwner && handReady ? (
           <div className="absolute bottom-24 left-1/2 -translate-x-1/2 flex gap-4">
             {me.hand.map((c, i) => (
               <Card
-                key={i}
+                key={`${room.powerSelectId}-${i}`}
                 card={c}
+                clickable
                 onClick={() =>
                   socket.emit("set-power-card", {
                     roomId: room.roomId,
@@ -393,6 +552,8 @@ export default function SevenCallsBoard() {
               />
             ))}
           </div>
+        ) : isPowerOwner && !handReady ? (
+          <Center>Loading hand…</Center>
         ) : (
           <Center>Waiting for highest bidder…</Center>
         )}
@@ -400,8 +561,9 @@ export default function SevenCallsBoard() {
     );
   }
 
+
   /* ================= PLAYING ================= */
-  if (phase === "playing") {
+  if (phase === "playing" || phase === "trick-end") {
     return (
       <>
         <Table>
@@ -443,6 +605,7 @@ export default function SevenCallsBoard() {
                 <MyHand
                   key={pid}
                   me={p}
+                  canPlay={canPlay} 
                   socket={socket}
                   room={room}
                   playSound={playSound}
@@ -460,6 +623,7 @@ export default function SevenCallsBoard() {
               />
             );
           })}
+          <UserTurnIndicator isTurn={room.turn === playerId} />
         </Table>
 
         {/* ✅ REVEAL / PASS OVERLAY — OUTSIDE TABLE */}
@@ -500,10 +664,10 @@ export default function SevenCallsBoard() {
   /* ================= FINISHED ================= */
 /* ================= ENDED ================= */
   if (room.phase === "finished") {
-    const team1Players = order.filter(
+    const team1Players = room.order.filter(
       pid => room.playersData[pid].team === 1
     );
-    const team2Players = order.filter(
+    const team2Players = room.order.filter(
       pid => room.playersData[pid].team === 2
     );
 
@@ -521,85 +685,85 @@ export default function SevenCallsBoard() {
 
     return (
       <Center>
-        {/* 🎉 CONFETTI */}
-        {playWinSound && (
-          <Confetti recycle={false} numberOfPieces={260} />
-        )}
+        {playWinSound && <Confetti recycle={false} numberOfPieces={200} />}
 
-        <div className="text-center space-y-6">
-          {/* TITLE */}
+        <div className="flex flex-col items-center gap-6">
+          {/* 🏆 TEAM NUMBER BIG (LIKE CALLBREAK WINNER NAME) */}
           <motion.div
             initial={{ scale: 0 }}
-            animate={{ scale: 1.15 }}
-            transition={{ type: "spring", stiffness: 320, damping: 14 }}
+            animate={{ scale: 1.3 }}
+            transition={{ type: "spring", stiffness: 300, damping: 15 }}
           >
-            <h1 className="text-5xl font-bold">🏆 Match Finished!</h1>
+            <h1 className="text-6xl font-extrabold text-emerald-400">
+              🏆 {winnerTeam ? `TEAM ${winnerTeam}` : "DRAW"}
+            </h1>
           </motion.div>
 
-          {/* WINNER */}
-          <motion.div
-            initial={{ opacity: 0, y: -30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-          >
-            <h2 className="text-3xl font-bold text-emerald-400">
-              {winnerTeam
-                ? `Congratulations Team ${winnerTeam}!`
-                : "It's a Draw!"}
-            </h2>
-
-            {winnerTeam && (
-              <div className="text-lg mt-1 text-emerald-200">
-                {winnerNames}
-              </div>
-            )}
-          </motion.div>
-
-          {/* SCORES */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.45 }}
-            className="text-xl font-semibold text-yellow-300"
-          >
-            Team 1: {t1Score} | Team 2: {t2Score}
-          </motion.div>
-
-          {/* WINNING AMOUNT */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.6 }}
-            className="text-2xl text-green-400 font-bold"
-          >
-            Winning Amount: 💰 TK{winningAmount}.00
-          </motion.div>
-
-          {/* EXIT */}
-          <motion.div
-            initial={{ y: 50, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.75 }}
-          >
-            <button
-              onClick={() => {
-                socket.emit("exit-room", {
-                  roomId: room.roomId,
-                  playerId,
-                });
-                router.push("/");
-              }}
-              className="mt-4 px-8 py-3 bg-red-600 hover:bg-red-500 rounded-xl text-white text-lg font-semibold"
+          {/* PLAYER NAMES BELOW (SECONDARY) */}
+          {winnerTeam && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+              className="text-2xl font-bold text-emerald-200"
             >
-              Exit Match
-            </button>
+              {winnerNames}
+            </motion.div>
+          )}
 
+          {/* 💰 WINNING AMOUNT (SAME STYLE AS CALLBREAK) */}
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="text-3xl font-bold text-yellow-300"
+          >
+            💰 Winning Amount: {winningAmount / 100} TK
           </motion.div>
+
+          {/* PLAYER VOTE BOXES (UNCHANGED) */}
+          <div className="grid grid-cols-2 gap-4 mt-4">
+            {room.order.map(pid => (
+              <PlayerVoteBox
+                key={pid}
+                name={room.playersData[pid].name}
+                color={getBoxColor(pid,rematchVotes)}
+              />
+            ))}
+          </div>
+
+          <motion.button
+            animate={{ scale: [1, 1.08, 1] }}
+            transition={{ repeat: Infinity, duration: 1.2 }}
+            onClick={() =>
+              socket.emit("vote-rematch-7call", {
+                roomId: room.roomId,
+                playerId,
+                vote: true,
+              })
+            }
+            className="mt-6 px-10 py-4 bg-emerald-500 hover:bg-emerald-400 rounded-2xl text-black text-xl font-bold shadow-[0_0_40px_rgba(16,185,129,0.9)]"
+          >
+            🔁 PLAY AGAIN
+          </motion.button>
+
+          <motion.button
+            onClick={() =>
+              socket.emit("vote-rematch-7call", {
+                roomId: room.roomId,
+                playerId,
+                vote: false,
+              })
+            }
+            className="mt-4 px-12 py-3 bg-red-600 hover:bg-red-500 text-white font-bold text-lg rounded-xl shadow-lg"
+          >
+            ❌ EXIT MATCH
+          </motion.button>
+
         </div>
       </Center>
     );
   }
-
 
   return <Center>Unknown state</Center>;
 }
@@ -613,10 +777,82 @@ function Center({ children }) {
     </div>
   );
 }
+function BiddingHeader({ room, order, currentTurn }) {
+  return (
+    <div className="absolute top-6 left-1/2 -translate-x-1/2 w-full max-w-[92%] z-40">
+      
+      {/* BIG TITLE */}
+      <div className="text-center mb-4">
+        <motion.div
+          animate={{ scale: [1, 1.05, 1] }}
+          transition={{ duration: 1.8, repeat: Infinity }}
+          className="
+            text-4xl md:text-5xl
+            font-bold tracking-widest
+            text-yellow-300
+            drop-shadow-[0_0_20px_rgba(253,224,71,0.6)]
+          "
+        >
+          BIDDING
+        </motion.div>
+      </div>
+
+      {/* PLAYERS ROW */}
+      <div className="flex justify-center gap-2 flex-wrap">
+        {order.map(pid => {
+          const p = room.playersData[pid];
+          const isTurn = currentTurn === pid;
+
+          return (
+            <motion.div
+              key={pid}
+              animate={
+                isTurn
+                  ? { scale: 1.08, boxShadow: "0 0 18px rgba(16,185,129,0.9)" }
+                  : { scale: 1 }
+              }
+              className={`
+                px-3 py-2 rounded-lg text-xs font-semibold
+                min-w-[70px] text-center
+                transition-all
+
+                ${p.team === 1
+                  ? "bg-emerald-800 text-emerald-200"
+                  : "bg-indigo-800 text-indigo-200"}
+
+                ${isTurn ? "ring-2 ring-yellow-400" : "opacity-80"}
+              `}
+            >
+              <div>{p.name}</div>
+
+              {/* BID STATUS */}
+              <div className="mt-1 text-[11px] opacity-90">
+                {p.bid != null ? (
+                  p.bid === 5 ? "Pass" : `${p.bid}`
+                ) : (
+                  <span className="italic opacity-50">Waiting</span>
+                )}
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 
 function Table({ children }) {
   return (
-    <div className="h-[100dvh] relative overflow-hidden bg-gradient-to-br from-emerald-900 to-black">
+    <div
+      className="
+        h-[100dvh]
+        relative
+        overflow-hidden
+        touch-none   /* 🔒 */
+        bg-gradient-to-br from-emerald-900 to-black
+      "
+    >
       <div className="absolute inset-0 flex items-center justify-center">
         <div
           className="relative w-[92vw] h-[72vh] rounded-full
@@ -633,36 +869,91 @@ function Table({ children }) {
   );
 }
 
-function MyHand({ me, socket, room, playSound, isTurn }) {
-  const leadSuit = room.playedCards?.[0]?.card?.suit;
-  const canPlay = card => {
-    if (room.turn !== me.playerId) return false;
-    if (room.pendingReveal) return false;
-    if (!leadSuit) return true;
-    const hasLead = me.hand.some(c => c.suit === leadSuit);
-    return !hasLead || card.suit === leadSuit;
-  };
+const SUIT_ORDER = {
+  diamonds: 0,
+  spades: 1,
+  hearts: 2,
+  clubs: 3,
+};
+
+const VALUE_ORDER = {
+  A: 1,
+  2: 2,
+  3: 3,
+  4: 4,
+  5: 5,
+  6: 6,
+  7: 7,
+  8: 8,
+  9: 9,
+  10: 10,
+  J: 11,
+  Q: 12,
+  K: 13,
+};
+
+function sortHand(hand) {
+  return [...hand].sort((a, b) => {
+    if (SUIT_ORDER[a.suit] !== SUIT_ORDER[b.suit]) {
+      return SUIT_ORDER[a.suit] - SUIT_ORDER[b.suit];
+    }
+    return VALUE_ORDER[a.value] - VALUE_ORDER[b.value];
+  });
+}
+
+function getBoxColor(pid, votes) {
+  if (!votes || votes[pid] == null) return "bg-gray-600";
+  return votes[pid] ? "bg-emerald-500" : "bg-red-500";
+}
+
+function MyHand({ me, canPlay, socket, room, playSound, isTurn }) {
+  const [scale, setScale] = React.useState(1);
+  const [draggingId, setDraggingId] = React.useState(null);
+
+  React.useEffect(() => {
+    function updateScale() {
+      const h = window.innerHeight;
+      if (h <= 400) setScale(0.85);
+      else if (h <= 420) setScale(0.9);
+      else if (h <= 550) setScale(0.95);
+      else setScale(1);
+    }
+    updateScale();
+    window.addEventListener("resize", updateScale);
+    return () => window.removeEventListener("resize", updateScale);
+  }, []);
+
+  const hand = sortHand(me.hand);
+  const count = hand.length;
+  const mid = (count - 1) / 2;
 
   return (
-    <div className="
-      absolute bottom-[-90px] left-1/2 -translate-x-1/2 h-44 w-[640px]
-
-      scale-100
-      [@media(max-height:400px)]:scale-[0.85]
-    ">
-      {me.hand.map((c, i) => {
-        const mid = (me.hand.length - 1) / 2;
-        const diff = i - mid;
+    <div
+      className="absolute left-1/2 bottom-[-90px] h-48 w-[680px]"
+      style={{ transform: `translateX(-50%) scale(${scale})` }}
+    >
+      {hand.map((c, i) => {
         const playable = canPlay(c);
+        const diff = i - mid;
+        const isDragging = draggingId === c.id;
+
+        // 🎴 SUBTLE FAN (FIXED)
+        const x = diff * 50;
+        const rotate = isDragging ? 0 : diff * 3;
+        const lift = isDragging ? 0 : Math.abs(diff) * 2;
 
         return (
           <motion.div
-            key={i}
-            className="absolute left-1/2"
-            animate={{ x: diff * 48 }}
-            whileHover={playable ? { y: -26, scale: 1.12 } : {}}
+            key={c.id}
+            className="absolute left-1/2 touch-none"
+            drag={playable && isTurn ? "y" : false}
+            dragConstraints={{ top: -200, bottom: 0 }}
+            dragElastic={0.1}
+            dragMomentum={false}
+
             onClick={() => {
-              if (!playable) return;
+              if (!canPlay(c) || !isTurn) return;
+
               playSound("card");
               socket.emit("play-card", {
                 roomId: room.roomId,
@@ -670,8 +961,44 @@ function MyHand({ me, socket, room, playSound, isTurn }) {
                 card: c,
               });
             }}
+            onDragStart={() => {
+              setDraggingId(c.id);
+            }}
+            onDragEnd={(e, info) => {
+              setDraggingId(null);
+              if (!playable || !isTurn) return;
+              if (info.offset.y < -90) {
+                playSound("card");
+                socket.emit("play-card", {
+                  roomId: room.roomId,
+                  playerId: me.playerId,
+                  card: c,
+                });
+              }
+            }}
+
+            animate={{
+              x,
+              y: lift,
+              rotate,
+              scale: isDragging ? 1.08 : 1,
+              opacity: isTurn ? 1 : 0.95,
+              zIndex: isDragging ? 100 : i,
+            }}
+
+            transition={{
+              type: "spring",
+              stiffness: 500,
+              damping: 38,
+            }}
+
+            whileHover={
+              playable && isTurn && !isDragging
+                ? { y: -22, scale: 1.1, zIndex: 50 }
+                : {}
+            }
           >
-            <Card card={c} disabled={!playable} />
+            <Card card={c} disabled={!playable || !isTurn} />
           </motion.div>
         );
       })}
@@ -679,9 +1006,69 @@ function MyHand({ me, socket, room, playSound, isTurn }) {
   );
 }
 
-function EnemyHand({ player, seat, isTurn }) {
-  const h =
-    typeof window !== "undefined" ? window.innerHeight : 1000;
+function UserTurnIndicator({ isTurn }) {
+  return (
+    <div
+      className={`
+        fixed z-[999]
+        bottom-[10px] left-[10px]
+        w-12 h-12
+        rounded-full
+        flex items-center justify-center
+        transition-all duration-300 ease-out
+
+        ${isTurn
+          ? "bg-emerald-500 scale-110 shadow-[0_0_20px_rgba(16,185,129,0.95)]"
+          : "bg-white/10 border border-white/20"}
+      `}
+    >
+      {/* PULSE RING (only on turn) */}
+      {isTurn && (
+        <span className="
+          absolute inset-0
+          rounded-full
+          animate-ping
+          bg-emerald-400/50
+        " />
+      )}
+
+      {/* USER ICON */}
+      <svg
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        className={`relative z-10 ${
+          isTurn ? "text-black" : "text-white/70"
+        }`}
+      >
+        <path
+          d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12Zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8V22h19.2v-2.8c0-3.2-6.4-4.8-9.6-4.8Z"
+          fill="currentColor"
+        />
+      </svg>
+    </div>
+  );
+}
+function PlayerVoteBox({ name, color }) {
+  return (
+    <div
+      className={`
+        w-28 h-20 rounded-xl
+        flex items-center justify-center
+        text-white font-semibold
+        shadow-lg transition-all
+        ${color}
+      `}
+    >
+      {name}
+    </div>
+  );
+}
+
+export function EnemyHand({ player, seat, isTurn }) {
+  const h = typeof window !== "undefined" ? window.innerHeight : 1000;
+  const w = typeof window !== "undefined" ? window.innerWidth : 1000;
 
   /* ================= HEIGHT DELTA ================= */
   const delta = Math.max(0, 500 - h);
@@ -691,37 +1078,21 @@ function EnemyHand({ player, seat, isTurn }) {
   const topPush = Math.min(70, 30 + delta * 0.5);  // TOP
   const bottomPush = Math.min(50, 20 + delta * 0.4);
 
+  /* ================= MOBILE OFFSET ================= */
+  const isMobile = w < 768; // mobile check
+  const mobileOffset = isMobile ? -7 : 0; // left/right hands move 7% upward
+
   /* ================= POSITION ================= */
   const stylePos = (() => {
     switch (seat) {
       case "top":
-        return {
-          top: `${18 - topPush}px`, // 🔥 move UP
-          left: "50%",
-          transform: "translateX(-50%)",
-        };
-
+        return { top: `${18 - topPush}px`, left: "50%", transform: "translateX(-50%)" };
       case "bottom":
-        return {
-          bottom: `${8 - bottomPush}px`,
-          left: "50%",
-          transform: "translateX(-50%)",
-        };
-
+        return { bottom: `${8 - bottomPush}px`, left: "50%", transform: "translateX(-50%)" };
       case "left":
-        return {
-          left: `${8 - sidePush}px`, // 🔥 move LEFT
-          top: "50%",
-          transform: "translateY(-50%)",
-        };
-
+        return { left: `${8 - sidePush}px`, top: `calc(50% + ${mobileOffset}%)`, transform: "translateY(-50%)" };
       case "right":
-        return {
-          right: `${4 - sidePush}px`, // 🔥 move RIGHT
-          top: "50%",
-          transform: "translateY(calc(-50% - 10px))",
-        };
-
+        return { right: `${4 - sidePush}px`, top: `calc(50% + ${mobileOffset}%)`, transform: "translateY(calc(-50% - 10px))" };
       default:
         return null;
     }
@@ -729,7 +1100,7 @@ function EnemyHand({ player, seat, isTurn }) {
 
   if (!stylePos) return null;
 
-  /* ================= CARD SCALE (UNCHANGED) ================= */
+  /* ================= CARD SCALE ================= */
   const scale =
     h > 720 ? 1 :
     h > 600 ? 0.96 :
@@ -738,26 +1109,24 @@ function EnemyHand({ player, seat, isTurn }) {
     0.84;
 
   /* ================= ROTATION ================= */
-  const rotate =
-    seat === "left"
-      ? "rotate-90"
-      : seat === "right"
-      ? "-rotate-90"
-      : "";
+  const rotate = seat === "left" ? "rotate-90" : seat === "right" ? "-rotate-90" : "";
 
   return (
-    <div className="absolute text-center pointer-events-none" style={stylePos}>
-      {/* PLAYER NAME */}
-      <div
-        className={`mb-2 text-xs font-medium text-emerald-200 ${
-          isTurn ? "ring-2 ring-emerald-400 rounded-full px-2" : ""
-        }`}
-      >
-        {player.name}
-      </div>
+    <div className="absolute pointer-events-none" style={stylePos}>
+      {/* HAND + PLAYER NAME */}
+      <div className="relative h-28 w-72 flex flex-col items-center">
+        {/* ===== PLAYER NAME CARD ===== */}
+        <div className="mb-2 relative z-10">
+          <span
+            className={`px-3 py-1 text-xs font-medium text-white bg-emerald-700 rounded-full ${
+              isTurn ? "ring-2 ring-emerald-400" : ""
+            }`}
+          >
+            {player.name}
+          </span>
+        </div>
 
-      {/* HAND */}
-      <div className="relative h-28 w-72">
+        {/* ===== HAND CARDS ===== */}
         <div className={`absolute inset-0 ${rotate}`}>
           {player.hand.map((_, i) => {
             const mid = (player.hand.length - 1) / 2;
@@ -768,9 +1137,7 @@ function EnemyHand({ player, seat, isTurn }) {
                 key={i}
                 className="absolute left-1/2"
                 style={{
-                  transform: `translateX(calc(-50% + ${
-                    diff * 12
-                  }px)) rotate(${diff * 3}deg)`,
+                  transform: `translateX(calc(-50% + ${diff * 12}px)) rotate(${diff * 3}deg)`,
                 }}
               >
                 <div style={{ transform: `scale(${scale})` }}>

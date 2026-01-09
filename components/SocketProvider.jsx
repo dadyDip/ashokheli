@@ -11,7 +11,7 @@ export function SocketProvider({ children }) {
 
   useEffect(() => {
     const SOCKET_URL =
-      process.env.NEXT_PUBLIC_SOCKET_URL || "https://ashokheli.top";
+      process.env.NEXT_PUBLIC_SOCKET_URL || "https://localhost:3000";
 
     const s = io(SOCKET_URL, {
       transports: ["websocket", "polling"],

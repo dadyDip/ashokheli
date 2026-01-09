@@ -2,10 +2,11 @@
 
 export default function Card({
   card,
-  onClick,
   disabled,
-  faceDown = false,   
-  backImage = "/img/card-back.jpeg", 
+  faceDown = false,
+  onClick,
+  clickable = false,
+  backImage = "/img/card-back.jpeg",
 }) {
   if (!card && !faceDown) return null;
 
@@ -20,87 +21,44 @@ export default function Card({
 
   return (
     <div
-      onClick={() => !disabled && !faceDown && onClick?.(card)}
+      className={`relative rounded-lg shadow-lg select-none cursor-pointer`}
       style={{
         width: 70,
         height: 100,
-        borderRadius: 10,
         background: faceDown ? "#1e3a8a" : "#fff",
-        boxShadow: "0 4px 10px rgba(0,0,0,0.3)",
-        cursor: disabled || faceDown ? "default" : "pointer",
-        opacity: disabled ? 0.5 : 1,
-        position: "relative",
-        userSelect: "none",
-        overflow: "hidden",
-        transition: "transform 0.15s ease",
       }}
-      onMouseEnter={(e) => {
-        if (!disabled && !faceDown)
-          e.currentTarget.style.transform = "translateY(-6px)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "translateY(0)";
-      }}
+      onClick={disabled || !clickable ? undefined : onClick}
     >
-      {/* ================= CARD BACK ================= */}
-      {faceDown && (
+      {faceDown ? (
         <img
           src={backImage}
           alt="Card Back"
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-          }}
+          className="w-full h-full object-cover rounded-lg"
+          draggable={false}
         />
-      )}
-
-      {/* ================= CARD FRONT ================= */}
-      {!faceDown && (
+      ) : (
         <>
-          {/* Top-left */}
           <div
-            style={{
-              position: "absolute",
-              top: 6,
-              left: 6,
-              fontSize: 14,
-              fontWeight: "bold",
-              color: suit.color,
-            }}
+            className="absolute top-1.5 left-1.5 text-sm font-bold"
+            style={{ color: suit.color }}
           >
             {card.value}
-            <div style={{ fontSize: 12 }}>{suit.symbol}</div>
+            <div className="text-xs">{suit.symbol}</div>
           </div>
 
-          {/* Center */}
           <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              fontSize: 36,
-              color: suit.color,
-            }}
+            className="absolute inset-0 flex items-center justify-center text-4xl"
+            style={{ color: suit.color }}
           >
             {suit.symbol}
           </div>
 
-          {/* Bottom-right */}
           <div
-            style={{
-              position: "absolute",
-              bottom: 6,
-              right: 6,
-              fontSize: 14,
-              fontWeight: "bold",
-              color: suit.color,
-              transform: "rotate(180deg)",
-            }}
+            className="absolute bottom-1.5 right-1.5 text-sm font-bold rotate-180"
+            style={{ color: suit.color }}
           >
             {card.value}
-            <div style={{ fontSize: 12 }}>{suit.symbol}</div>
+            <div className="text-xs">{suit.symbol}</div>
           </div>
         </>
       )}

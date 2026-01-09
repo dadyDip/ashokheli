@@ -47,6 +47,18 @@ export default function RoomPage() {
     setToken(storedToken);
   }, [router]);
 
+  useEffect(() => {
+    function setVH() {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty("--vh", `${vh}px`);
+    }
+
+    setVH();
+    window.addEventListener("resize", setVH);
+    return () => window.removeEventListener("resize", setVH);
+  }, []);
+
+
   /* ================= ROOM FETCH (API ONLY) ================= */
   useEffect(() => {
     if (!token) return;

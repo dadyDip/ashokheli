@@ -102,7 +102,10 @@ function sevenCallsAISetPower(io, room, pid) {
   const p = room.playersData[pid];
   if (!p || room.highestBidder !== pid || room.turn !== pid) return;
 
-  // AI sees only 5 cards here — CORRECT
+  // ✅ if player is online, AI does nothing
+  if (p.connected) return;
+
+  // AI chooses power card as before
   const suitScore = {};
   for (const c of p.hand) {
     suitScore[c.suit] ??= 0;
@@ -114,22 +117,17 @@ function sevenCallsAISetPower(io, room, pid) {
 
   const bestSuit = Object.entries(suitScore)
     .sort((a, b) => b[1] - a[1])[0]?.[0];
-
   if (!bestSuit) return;
 
-  // choose ANY card of that suit (2/3/4/etc is fine)
   const card = p.hand.find(c => c.suit === bestSuit);
   if (!card) return;
 
-  // ✅ CORRECT CALL
   setPowerCard(room, pid, card);
   io.to(room.roomId).emit("update-room", room);
 
-  // ✅ Resume AI flow safely
-  setTimeout(() => {
-    chainNextAI(io, room);
-  }, 200);
+  setTimeout(() => chainNextAI(io, room), 200);
 }
+
 
 
 /* ======================================================
@@ -143,14 +141,18 @@ function sevenCallsAIPlay(io, room, pid) {
   /* ---------- REVEAL LOGIC ---------- */
 
   if (room.pendingReveal?.playerId === pid) {
+    // reveal power if needed
     if (shouldRevealPower(room, pid)) {
-      revealPower(io, room, pid);
+      revealPower(io, room, pid); // unified
     } else {
-      p.passedReveal = true;
+      room.playersData[pid].passedReveal = true;
       room.pendingReveal = null;
+      // continue AI move
+      sevenCallsAIMove(io, room, pid);
     }
-    return; // same turn
+    return; // stop current playCard, AI move continues
   }
+
 
   if (room.pendingReveal) return;
 

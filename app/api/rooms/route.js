@@ -80,6 +80,7 @@ export async function POST(req) {
         data: {
           gameType: body.gameType,
           entryFee,
+          matchType: body.matchType,
           targetScore,          // ✅ STORED IN DB
           maxPlayers,
           hostId: user.id,

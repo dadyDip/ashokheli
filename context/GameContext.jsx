@@ -7,6 +7,7 @@ import React, {
   useState,
 } from "react";
 import { useSocket } from "@/components/SocketProvider";
+import { v4 as uuidv4 } from "uuid";
 
 /* =========================================================
    🎴 CARD GAME CONTEXT (UNCHANGED)
@@ -31,11 +32,22 @@ export function CardGameProvider(props = {}) {
   const [playerId, setPlayerId] = useState(null);
   const [joined, setJoined] = useState(false);
 
+
+
+  const realPlayerCount =
+    room?.playersData
+      ? Object.values(room.playersData).filter(p => !p.isAI).length
+      : 0;
+
+  const winningAmount =
+    entryFee > 0 ? entryFee * realPlayerCount : 0;
+
+
   /* ================= PLAYER ID ================= */
   useEffect(() => {
     let pid = localStorage.getItem("playerId");
     if (!pid) {
-      pid = "player-" + crypto.randomUUID().slice(0, 8);
+      pid = "player-" + uuidv4().slice(0, 8);
       localStorage.setItem("playerId", pid);
     }
     setPlayerId(pid);
@@ -108,6 +120,7 @@ export function CardGameProvider(props = {}) {
         joined,
         socketReady,
         mode,
+        winningAmount,
       }}
     >
       {children}

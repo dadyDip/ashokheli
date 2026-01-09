@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import Confetti from "react-confetti";
 import { useCardGame } from "../context/GameContext";
 import { useRouter } from "next/navigation";
+import { useMobileFullscreen } from "@/app/useMobileFullscreen";
 
 
 import Card from "./Card";
@@ -33,23 +34,77 @@ export default function CallBreakBoard() {
   const router = useRouter();
   const { room, playerId, winningAmount, socket } = useCardGame();
   const playSound = useSounds();
+  const fullscreenReady = useMobileFullscreen();
   const [winnerPid, setWinnerPid] = useState(null);
-  useEffect(() => {
-    const originalOverflow = document.body.style.overflow;
-    const originalTouchAction = document.body.style.touchAction;
+  const [playWinSound, setPlayWinSound] = useState(false);
+  const [playCoinSound, setPlayCoinSound] = useState(false);
+  const [trumpBroken, setTrumpBroken] = useState(false);
+  const [rematchVotes, setRematchVotes] = useState({});
 
-    document.body.style.overflow = "hidden";
-    document.body.style.touchAction = "none";
+
+
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+
+    // ===============================
+    // LOCK PAGE HEIGHT & SCROLL
+    // ===============================
+    html.style.height = "100%";
+    body.style.height = "100%";
+
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+
+    html.style.overscrollBehavior = "none";
+    body.style.overscrollBehavior = "none";
+
+    // ✅ pinch-zoom only
+    body.style.touchAction = "pinch-zoom";
+
+    // ===============================
+    // Prevent zooming out below original size (iOS Safari / Brave)
+    // ===============================
+    const preventZoomOut = (e) => {
+      if (e.scale < 1) e.preventDefault(); // block zoom out
+    };
+
+    const preventScroll = (e) => {
+      e.preventDefault(); // block all swipe/scroll
+    };
+
+    // iOS gestures
+    document.addEventListener("gesturestart", preventZoomOut, { passive: false });
+    document.addEventListener("gesturechange", preventZoomOut, { passive: false });
+
+    // block touch scroll
+    document.addEventListener("touchmove", preventScroll, { passive: false });
 
     return () => {
-      document.body.style.overflow = originalOverflow;
-      document.body.style.touchAction = originalTouchAction;
+      // ===============================
+      // RESET STYLES / EVENTS
+      // ===============================
+      html.style.height = "";
+      body.style.height = "";
+
+      html.style.overflow = "";
+      body.style.overflow = "";
+
+      html.style.overscrollBehavior = "";
+      body.style.overscrollBehavior = "";
+
+      body.style.touchAction = "";
+
+      document.removeEventListener("gesturestart", preventZoomOut);
+      document.removeEventListener("gesturechange", preventZoomOut);
+      document.removeEventListener("touchmove", preventScroll);
     };
   }, []);
 
 
-
   if (!room) return <Center>Connecting…</Center>;
+  const scoringType = room.matchType || "target";
+
   const me = room.playersData?.[playerId];
   if (!me) return <Center>Registering…</Center>;
 
@@ -81,6 +136,28 @@ export default function CallBreakBoard() {
     }
   }, [room.phase]);
 
+  const trumpSuit = room.trumpSuit; // <-- from server
+
+  useEffect(() => {
+    if (room?.rematchVotes) {
+      setRematchVotes(room.rematchVotes);
+    }
+  }, [room?.rematchVotes]);
+
+
+  useEffect(() => {
+    if (!room.playedCards) return;
+
+    const trumpPlayed = room.playedCards.some(
+      pc => pc.card.suit === room.trumpSuit
+    );
+
+    if (trumpPlayed && !trumpBroken) {
+      setTrumpBroken(true);
+    }
+  }, [room.playedCards, room.trumpSuit, trumpBroken]);
+
+
   /* ===== ROTATION ===== */
   const meIndex = order.indexOf(playerId);
   const rotated =
@@ -94,6 +171,8 @@ export default function CallBreakBoard() {
     2: "top",
     3: "right",
   };
+
+
   const maxScore = Math.max(
     ...Object.values(room.playersData).map(p => p.score ?? 0)
   );
@@ -101,9 +180,6 @@ export default function CallBreakBoard() {
     p => (p.score ?? 0) === maxScore
   );
   const winnerNames = winners.map(p => p.name).join(", ");
-
-  const [playWinSound, setPlayWinSound] = useState(false);
-  const [playCoinSound, setPlayCoinSound] = useState(false);
 
   // Play victory sound once when component mounts
   useEffect(() => {
@@ -125,13 +201,63 @@ export default function CallBreakBoard() {
 
   function canPlay(card) {
     if (room.turn !== playerId) return false;
-    if (!leadSuit) return true;
-    const hasLead = me.hand.some(c => c.suit === leadSuit);
-    return hasLead ? card.suit === leadSuit : true;
+
+    const leadSuit = room.playedCards?.[0]?.card?.suit;
+
+    // ===============================
+    // LEADING THE TRICK
+    // ===============================
+    if (!leadSuit) {
+      // 🚫 Cannot lead with trump if not broken
+      if (card.suit === trumpSuit && !trumpBroken) {
+        return false;
+      }
+      return true;
+    }
+
+    // ===============================
+    // FOLLOW SUIT
+    // ===============================
+    const hasLeadSuit = me.hand.some(
+      c => c.suit === leadSuit
+    );
+
+    if (hasLeadSuit) {
+      return card.suit === leadSuit;
+    }
+
+    // ===============================
+    // VOID IN LEAD SUIT
+    // ===============================
+    // Player has no lead suit → anything allowed (including trump)
+    return true;
   }
+
+  function getBoxColor(pid) {
+    if (rematchVotes?.[pid] === true) return "bg-blue-500";
+    if (rematchVotes?.[pid] === false) return "bg-red-500";
+    return "bg-emerald-500";
+  }
+
+  {!fullscreenReady && (
+    <div className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center">
+      <div
+        className="text-emerald-300 text-lg font-semibold"
+        onClick={fullscreenReady} // or whatever triggers it
+      >
+        Tap to start game
+      </div>
+    </div>
+  )}
+
   const TableContainer = ({ children }) => {
     return (
-      <div className="fixed inset-0 overflow-hidden bg-gradient-to-br from-emerald-950 to-black">
+      <div className="
+        fixed inset-0
+        overflow-hidden
+        touch-none   /* 🔒 */
+        bg-gradient-to-br from-emerald-950 to-black
+      ">
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="relative w-full h-full max-w-[900px] max-h-[900px]">
             {children}
@@ -205,7 +331,7 @@ export default function CallBreakBoard() {
         >
           {/* TITLE */}
           <div className="font-semibold mb-2">
-            ♠ Call Break — Target {targetScore}
+            ♠ Call Break — {scoringType === "per-lead" ? "Per Lead (1 Round)" : `Target ${targetScore}`}
           </div>
 
           {/* PLAYER SCORES INLINE */}
@@ -260,7 +386,7 @@ export default function CallBreakBoard() {
             Winning Amount
           </div>
           <div className="font-bold text-emerald-300">
-            💰 TK{winningAmount}
+            Total POT: {winningAmount / 100}tk
           </div>
         </div>
       </>
@@ -272,36 +398,27 @@ export default function CallBreakBoard() {
   if (room.phase === "waiting") {
     const seatPositions = [
       // Bottom (YOU)
-      `
-        bottom-[40px] left-1/2 -translate-x-1/2
-        [@media(max-height:700px)]:bottom-[20px]
-        [@media(max-height:600px)]:bottom-[10px]
-      `,
-
+      `bottom-[40px] left-1/2 -translate-x-1/2
+      [@media(max-height:700px)]:bottom-[20px]
+      [@media(max-height:600px)]:bottom-[10px]`,
       // Left
-      `
-        left-[40px] top-1/2 -translate-y-1/2
-        [@media(max-height:600px)]:left-[80px]
-      `,
-
+      `left-[40px] top-1/2 -translate-y-1/2
+      [@media(max-height:600px)]:left-[80px]`,
       // Top
-      `
-        top-[40px] left-1/2 -translate-x-1/2
-        [@media(max-height:700px)]:top-[100px]
-        [@media(max-height:600px)]:top-[160px]
-      `,
-
+      `top-[40px] left-1/2 -translate-x-1/2
+      [@media(max-height:700px)]:top-[100px]
+      [@media(max-height:600px)]:top-[160px]`,
       // Right
-      `
-        right-[40px] top-1/2 -translate-y-1/2
-        [@media(max-height:600px)]:right-[80px]
-      `,
+      `right-[40px] top-1/2 -translate-y-1/2
+      [@media(max-height:600px)]:right-[80px]`,
     ];
 
+    // Detect portrait mode
+    const isPortrait = typeof window !== "undefined" && window.innerHeight > window.innerWidth;
 
     return (
       <>
-        {/* TOP LEFT LOGO (OUTSIDE SCALE) */}
+        {/* TOP LEFT LOGO */}
         <div className="fixed z-50 top-[env(safe-area-inset-top)] left-[env(safe-area-inset-left)] px-4 py-3">
           <h1
             className="antialiased text-2xl tracking-wide font-semibold bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent"
@@ -349,11 +466,28 @@ export default function CallBreakBoard() {
               Waiting for players…
             </motion.div>
           </div>
+
+          {/* ROTATE PHONE TIP */}
+          {isPortrait && (
+            <div className="absolute bottom-[80px] left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2 bg-yellow-500/10 rounded-full text-yellow-300 text-sm">
+              <motion.div
+                animate={{ rotate: [0, 15, -15, 0] }}
+                transition={{ repeat: Infinity, duration: 1.5 }}
+              >
+                🔄
+              </motion.div>
+              Rotate your phone for better experience
+            </div>
+          )}
+
+          {/* REFRESH TIP */}
+          <div className="absolute bottom-[30px] left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-yellow-500/10 text-yellow-300 text-xs">
+            Tip: If game gets stuck, just refresh
+          </div>
         </TableContainer>
       </>
     );
   }
-
 
   /* ================= BIDDING ================= */
   if (room.phase === "bidding") {
@@ -369,11 +503,31 @@ export default function CallBreakBoard() {
         )}
 
         {room.turn === playerId && me.bid == null && (
-          <div className="absolute bottom-32 left-1/2 -translate-x-1/2 grid grid-cols-7 gap-2">
-            {Array.from({ length: 13 }, (_, i) => i + 1).map(bid => (
+          <div
+            className="
+              fixed
+              left-1/2 -translate-x-1/2
+              bottom-[env(safe-area-inset-bottom)]
+              flex gap-2
+              px-3 py-2
+              rounded-t-xl
+              z-50
+              w-full max-w-md
+              justify-between
+            "
+          >
+            {[2,3,4,5,6,7,8].map(bid => (
               <button
                 key={bid}
-                className="bg-emerald-800 px-3 py-2 rounded"
+                className="
+                  flex-1
+                  bg-emerald-800
+                  hover:bg-emerald-700
+                  active:scale-95
+                  py-2
+                  rounded-lg
+                  font-semibold
+                "
                 onClick={() =>
                   socket.emit("place-bid", {
                     roomId: room.roomId,
@@ -387,6 +541,7 @@ export default function CallBreakBoard() {
             ))}
           </div>
         )}
+
 
         <MyHand
           me={me}
@@ -448,69 +603,99 @@ export default function CallBreakBoard() {
             />
           );
         })};
+        <UserTurnIndicator isTurn={room.turn === playerId} />
+
             
       </Table>
     );
   }
   if (room.phase === "ended") {
+    const winner = winners[0]; // only one winner
     return (
       <Center>
-        {/* Confetti */}
         {playWinSound && <Confetti recycle={false} numberOfPieces={200} />}
-
-        <div className="text-center space-y-6">
+        <div className="flex flex-col items-center gap-6">
+          {/* WINNER NAME BIG */}
           <motion.div
             initial={{ scale: 0 }}
-            animate={{ scale: 1.2 }}
+            animate={{ scale: 1.3 }}
             transition={{ type: "spring", stiffness: 300, damping: 15 }}
           >
-            <h1 className="text-5xl">🏆 Match Finished!</h1>
+            <h1 className="text-6xl font-extrabold text-emerald-400">
+              🏆 {winner.name}
+            </h1>
           </motion.div>
 
+          {/* WINNING AMOUNT */}
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
+            transition={{ delay: 0.2 }}
+            className="text-3xl font-bold text-yellow-300"
           >
-            <h2 className="text-3xl font-bold text-emerald-400">
-             Congratulations to Winner{winners.length > 1 ? "s" : ""}: {winnerNames}
-            </h2>
+            💰 Winning Amount: {winningAmount / 100} TK
           </motion.div>
 
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.5 }}
-            className="text-xl text-yellow-300 font-semibold"
+          {/* PLAYER VOTE BOXES */}
+          <div className="grid grid-cols-2 gap-4 mt-4">
+            {room.order.map(pid => (
+              <PlayerVoteBox
+                key={pid}
+                name={room.playersData[pid].name}
+                color={getBoxColor(pid)}
+              />
+            ))}
+          </div>
+
+          {/* REMATCH BUTTON */}
+          <motion.button
+            animate={{ scale: [1, 1.08, 1] }}
+            transition={{ repeat: Infinity, duration: 1.2 }}
+            onClick={() =>
+              socket.emit("vote-rematch", {
+                roomId: room.roomId,
+                playerId,
+                vote: true,
+              })
+            }
+            className="
+              mt-6 px-10 py-4
+              bg-emerald-500
+              hover:bg-emerald-400
+              rounded-2xl
+              text-black text-xl font-bold
+              shadow-[0_0_40px_rgba(16,185,129,0.9)]
+            "
           >
-            Winning Amount: 💰💸 TK{winningAmount}.00
-          </motion.div>
+            🔁 PLAY AGAIN
+          </motion.button>
 
-          <motion.div
-            initial={{ y: 50, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.7 }}
+          {/* EXIT MATCH BUTTON RED */}
+          <motion.button
+            onClick={() => {
+              socket.emit("vote-rematch", {
+                roomId: room.roomId,
+                playerId,
+                vote: false,
+              });
+              router.push("/");
+            }}
+            className="
+              mt-4 px-12 py-3
+              bg-red-600 hover:bg-red-500
+              text-white font-bold text-lg
+              rounded-xl
+              shadow-lg
+            "
           >
-            <button
-              onClick={() => {
-                socket.emit("exit-room", {
-                  roomId: room.roomId,
-                  playerId,
-                });
-
-                // ✅ CLIENT NAVIGATION
-                router.push("/");
-              }}
-              className="mt-4 px-8 py-3 bg-red-600 hover:bg-red-500 rounded-xl text-white text-lg font-semibold"
-            >
-              Exit Match
-            </button>
-
-          </motion.div>
+            ❌ EXIT MATCH
+          </motion.button>
         </div>
       </Center>
     );
   }
+
+
 
   return <Center>Unknown state</Center>;
 }
@@ -527,7 +712,15 @@ function Center({ children }) {
 
 function Table({ children }) {
   return (
-    <div className="h-[100dvh] relative overflow-hidden bg-gradient-to-br from-emerald-900 to-black">
+    <div
+      className="
+        h-[100dvh]
+        relative
+        overflow-hidden
+        touch-none   /* 🔒 */
+        bg-gradient-to-br from-emerald-900 to-black
+      "
+    >
       <div className="absolute inset-0 flex items-center justify-center">
         <div
           className="relative w-[92vw] h-[72vh] rounded-full
@@ -544,15 +737,46 @@ function Table({ children }) {
   );
 }
 
+const SUIT_ORDER = {
+  diamonds: 0,
+  spades: 1,
+  hearts: 2,
+  clubs: 3,
+};
+
+const VALUE_ORDER = {
+  A: 1,
+  2: 2,
+  3: 3,
+  4: 4,
+  5: 5,
+  6: 6,
+  7: 7,
+  8: 8,
+  9: 9,
+  10: 10,
+  J: 11,
+  Q: 12,
+  K: 13,
+};
+
+function sortHand(hand) {
+  return [...hand].sort((a, b) => {
+    if (SUIT_ORDER[a.suit] !== SUIT_ORDER[b.suit]) {
+      return SUIT_ORDER[a.suit] - SUIT_ORDER[b.suit];
+    }
+    return VALUE_ORDER[a.value] - VALUE_ORDER[b.value];
+  });
+}
 
 function MyHand({ me, canPlay, socket, room, playSound, isTurn }) {
-  // Compute responsive scale based on window height
   const [scale, setScale] = React.useState(1);
+  const [draggingId, setDraggingId] = React.useState(null);
 
   React.useEffect(() => {
     function updateScale() {
       const h = window.innerHeight;
-      if (h <= 400) setScale(0.85); // 15% smaller
+      if (h <= 400) setScale(0.85);
       else if (h <= 420) setScale(0.9);
       else if (h <= 550) setScale(0.95);
       else setScale(1);
@@ -562,24 +786,37 @@ function MyHand({ me, canPlay, socket, room, playSound, isTurn }) {
     return () => window.removeEventListener("resize", updateScale);
   }, []);
 
+  const hand = sortHand(me.hand);
+  const count = hand.length;
+  const mid = (count - 1) / 2;
+
   return (
     <div
-      className="absolute left-1/2 bottom-[-90px] h-44 w-[640px] -translate-x-1/2"
+      className="absolute left-1/2 bottom-[-90px] h-48 w-[680px]"
       style={{ transform: `translateX(-50%) scale(${scale})` }}
     >
-      {me.hand.map((c, i) => {
-        const mid = (me.hand.length - 1) / 2;
-        const diff = i - mid;
+      {hand.map((c, i) => {
         const playable = canPlay(c);
+        const diff = i - mid;
+        const isDragging = draggingId === c.id;
+
+        // 🎴 SUBTLE FAN (FIXED)
+        const x = diff * 50;
+        const rotate = isDragging ? 0 : diff * 3;
+        const lift = isDragging ? 0 : Math.abs(diff) * 2;
 
         return (
           <motion.div
-            key={i}
-            className="absolute left-1/2"
-            animate={{ x: diff * 48, opacity: isTurn ? 1 : 0.9 }}
-            whileHover={playable ? { y: -26, scale: 1.12 } : {}}
+            key={c.id}
+            className="absolute left-1/2 touch-none"
+            drag={playable && isTurn ? "y" : false}
+            dragConstraints={{ top: -200, bottom: 0 }}
+            dragElastic={0.1}
+            dragMomentum={false}
+
             onClick={() => {
-              if (!playable) return;
+              if (!canPlay(c) || !isTurn) return;
+
               playSound("card");
               socket.emit("play-card", {
                 roomId: room.roomId,
@@ -587,19 +824,121 @@ function MyHand({ me, canPlay, socket, room, playSound, isTurn }) {
                 card: c,
               });
             }}
+
+            onDragStart={() => {
+              setDraggingId(c.id);
+            }}
+
+
+            onDragEnd={(e, info) => {
+              setDraggingId(null);
+
+              if (!playable || !isTurn) return;
+
+              // 🎯 PLAY THRESHOLD (CENTER DROP)
+              if (info.offset.y < -90) {
+                playSound("card");
+                socket.emit("play-card", {
+                  roomId: room.roomId,
+                  playerId: me.playerId,
+                  card: c,
+                });
+              }
+              // else → Framer auto-snaps back
+            }}
+
+            animate={{
+              x,
+              y: lift,
+              rotate,
+              scale: isDragging ? 1.08 : 1,
+              opacity: isTurn ? 1 : 0.85,
+              zIndex: isDragging ? 100 : i,
+            }}
+
+            transition={{
+              type: "spring",
+              stiffness: 500,
+              damping: 38,
+            }}
+
+            whileHover={
+              playable && isTurn && !isDragging
+                ? { y: -22, scale: 1.1, zIndex: 50 }
+                : {}
+            }
           >
-            <Card card={c} disabled={!playable} />
+            <Card card={c} disabled={!playable || !isTurn} />
           </motion.div>
         );
       })}
     </div>
   );
 }
+function UserTurnIndicator({ isTurn }) {
+  return (
+    <div
+      className={`
+        fixed z-[999]
+        bottom-[10px] left-[10px]
+        w-12 h-12
+        rounded-full
+        flex items-center justify-center
+        transition-all duration-300 ease-out
+
+        ${isTurn
+          ? "bg-emerald-500 scale-110 shadow-[0_0_20px_rgba(16,185,129,0.95)]"
+          : "bg-white/10 border border-white/20"}
+      `}
+    >
+      {/* PULSE RING (only on turn) */}
+      {isTurn && (
+        <span className="
+          absolute inset-0
+          rounded-full
+          animate-ping
+          bg-emerald-400/50
+        " />
+      )}
+
+      {/* USER ICON */}
+      <svg
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        className={`relative z-10 ${
+          isTurn ? "text-black" : "text-white/70"
+        }`}
+      >
+        <path
+          d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12Zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8V22h19.2v-2.8c0-3.2-6.4-4.8-9.6-4.8Z"
+          fill="currentColor"
+        />
+      </svg>
+    </div>
+  );
+}
+function PlayerVoteBox({ name, color }) {
+  return (
+    <div
+      className={`
+        w-28 h-20 rounded-xl
+        flex items-center justify-center
+        text-white font-semibold
+        shadow-lg transition-all
+        ${color}
+      `}
+    >
+      {name}
+    </div>
+  );
+}
 
 
-function EnemyHand({ player, seat, isTurn }) {
-  const h =
-    typeof window !== "undefined" ? window.innerHeight : 1000;
+export function EnemyHand({ player, seat, isTurn }) {
+  const h = typeof window !== "undefined" ? window.innerHeight : 1000;
+  const w = typeof window !== "undefined" ? window.innerWidth : 1000;
 
   /* ================= HEIGHT DELTA ================= */
   const delta = Math.max(0, 500 - h);
@@ -609,37 +948,21 @@ function EnemyHand({ player, seat, isTurn }) {
   const topPush = Math.min(70, 30 + delta * 0.5);  // TOP
   const bottomPush = Math.min(50, 20 + delta * 0.4);
 
+  /* ================= MOBILE OFFSET ================= */
+  const isMobile = w < 768; // mobile check
+  const mobileOffset = isMobile ? -7 : 0; // left/right hands move 7% upward
+
   /* ================= POSITION ================= */
   const stylePos = (() => {
     switch (seat) {
       case "top":
-        return {
-          top: `${18 - topPush}px`, // 🔥 move UP
-          left: "50%",
-          transform: "translateX(-50%)",
-        };
-
+        return { top: `${18 - topPush}px`, left: "50%", transform: "translateX(-50%)" };
       case "bottom":
-        return {
-          bottom: `${8 - bottomPush}px`,
-          left: "50%",
-          transform: "translateX(-50%)",
-        };
-
+        return { bottom: `${8 - bottomPush}px`, left: "50%", transform: "translateX(-50%)" };
       case "left":
-        return {
-          left: `${8 - sidePush}px`, // 🔥 move LEFT
-          top: "50%",
-          transform: "translateY(-50%)",
-        };
-
+        return { left: `${8 - sidePush}px`, top: `calc(50% + ${mobileOffset}%)`, transform: "translateY(-50%)" };
       case "right":
-        return {
-          right: `${4 - sidePush}px`, // 🔥 move RIGHT
-          top: "50%",
-          transform: "translateY(calc(-50% - 10px))",
-        };
-
+        return { right: `${4 - sidePush}px`, top: `calc(50% + ${mobileOffset}%)`, transform: "translateY(calc(-50% - 10px))" };
       default:
         return null;
     }
@@ -647,7 +970,7 @@ function EnemyHand({ player, seat, isTurn }) {
 
   if (!stylePos) return null;
 
-  /* ================= CARD SCALE (UNCHANGED) ================= */
+  /* ================= CARD SCALE ================= */
   const scale =
     h > 720 ? 1 :
     h > 600 ? 0.96 :
@@ -656,26 +979,24 @@ function EnemyHand({ player, seat, isTurn }) {
     0.84;
 
   /* ================= ROTATION ================= */
-  const rotate =
-    seat === "left"
-      ? "rotate-90"
-      : seat === "right"
-      ? "-rotate-90"
-      : "";
+  const rotate = seat === "left" ? "rotate-90" : seat === "right" ? "-rotate-90" : "";
 
   return (
-    <div className="absolute text-center pointer-events-none" style={stylePos}>
-      {/* PLAYER NAME */}
-      <div
-        className={`mb-2 text-xs font-medium text-emerald-200 ${
-          isTurn ? "ring-2 ring-emerald-400 rounded-full px-2" : ""
-        }`}
-      >
-        {player.name}
-      </div>
+    <div className="absolute pointer-events-none" style={stylePos}>
+      {/* HAND + PLAYER NAME */}
+      <div className="relative h-28 w-72 flex flex-col items-center">
+        {/* ===== PLAYER NAME CARD ===== */}
+        <div className="mb-2 relative z-10">
+          <span
+            className={`px-3 py-1 text-xs font-medium text-white bg-emerald-700 rounded-full ${
+              isTurn ? "ring-2 ring-emerald-400" : ""
+            }`}
+          >
+            {player.name}
+          </span>
+        </div>
 
-      {/* HAND */}
-      <div className="relative h-28 w-72">
+        {/* ===== HAND CARDS ===== */}
         <div className={`absolute inset-0 ${rotate}`}>
           {player.hand.map((_, i) => {
             const mid = (player.hand.length - 1) / 2;
@@ -686,9 +1007,7 @@ function EnemyHand({ player, seat, isTurn }) {
                 key={i}
                 className="absolute left-1/2"
                 style={{
-                  transform: `translateX(calc(-50% + ${
-                    diff * 12
-                  }px)) rotate(${diff * 3}deg)`,
+                  transform: `translateX(calc(-50% + ${diff * 12}px)) rotate(${diff * 3}deg)`,
                 }}
               >
                 <div style={{ transform: `scale(${scale})` }}>

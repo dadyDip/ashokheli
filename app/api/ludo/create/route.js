@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
+import { v4 as uuidv4 } from 'uuid';
 
 export async function POST(req) {
   try {
@@ -30,7 +31,7 @@ export async function POST(req) {
         : 0;
 
     /* ================= CREATE DB ROOM ================= */
-    const roomId = "ludo-" + crypto.randomUUID().slice(0, 6);
+    const roomId = "ludo-" + uuidv4().slice(0, 6);
 
     const room = await prisma.room.create({
       data: {

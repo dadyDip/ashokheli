@@ -43,7 +43,7 @@ export default function LudoRoom({ params }) {
 
     let pid = localStorage.getItem("ludoPlayerId");
     if (!pid) {
-      pid = "p-" + crypto.randomUUID().slice(0, 8);
+      const pid = "p-" + uuidv4().slice(0, 8);
       localStorage.setItem("ludoPlayerId", pid);
     }
     setPlayerId(pid);

@@ -61,9 +61,20 @@ export function setupCardGame(io) {
             // 🎮 DEMO ROOM — NO DB
             if (demo) {
               const gameType = mode === "seven" ? "seven" : "callbreak";
+
               room = createRoom(roomId, gameType);
+
               room.gameType = gameType;
-              room.mode = gameType; 
+
+              if (targetScore && Number(targetScore) > 0) {
+                room.matchType = "target";
+                room.targetScore = Number(targetScore);
+              } else {
+                room.matchType = "per-lead";
+                delete room.targetScore; // 🔥 ENSURE CLEAN STATE
+              }
+
+
               room.isDemo = true;
               room.entryFee = 0;
               room.maxPlayers = 4;
@@ -71,8 +82,13 @@ export function setupCardGame(io) {
 
               cardRooms[roomId] = room;
 
-              console.log("🎮 DEMO ROOM CREATED", roomId);
-            } 
+              console.log("🎮 DEMO ROOM CREATED", {
+                roomId,
+                gameType,
+                matchType: room.matchType,
+                targetScore: room.targetScore,
+              });
+            }
             // 💰 REAL ROOM — EXISTING LOGIC (UNCHANGED)
             else {
               const dbRoom = await prisma.room.findUnique({
@@ -82,6 +98,7 @@ export function setupCardGame(io) {
                   gameType: true,
                   maxPlayers: true,
                   targetScore: true,
+                  matchType: true,
                 },
               });
 
@@ -93,7 +110,7 @@ export function setupCardGame(io) {
               room = createRoom(roomId, dbRoom.gameType);
               room.gameType = dbRoom.gameType;
               room.mode = dbRoom.gameType;
-
+              room.matchType = dbRoom.matchType || "target";
               room.entryFee = dbRoom.entryFee;
               room.maxPlayers = dbRoom.maxPlayers ?? 4;
               room.targetScore = dbRoom.targetScore ?? 20;
@@ -296,11 +313,13 @@ export function setupCardGame(io) {
       const room = getRoom(roomId);
       if (!room || room.gameType !== "seven") return;
       if (room.phase !== "power-select") return;
+      if (room.turn !== playerId) return;
 
       setPowerCard(room, playerId, card);
       emit(io, room);
       maybeTriggerAI(io, room);
     });
+
 
     socket.on("pass-reveal", ({ roomId, playerId }) => {
       const room = cardRooms[roomId];
@@ -326,12 +345,18 @@ export function setupCardGame(io) {
 
       if (room.pendingReveal?.playerId !== playerId) return;
 
-      room.hiddenPower.revealed = true;
-      room.powerSuit = room.hiddenPower.card.suit;
-      room.pendingReveal = null;
+      const updatedRoom = {
+        ...room,
+        pendingReveal: null,
+        powerSuit: room.hiddenPower.card.suit,
+        hiddenPower: { ...room.hiddenPower, revealed: true },
+      };
 
-      emit(io, room);
-      maybeTriggerAI(io, room);
+      cardRooms[roomId] = updatedRoom;
+
+      emit(io, updatedRoom);
+      maybeTriggerAI(io, updatedRoom);
+
     });
 
 
@@ -363,16 +388,32 @@ export function setupCardGame(io) {
       const room = cardRooms[roomId];
       if (!room || room.phase !== "ended") return;
 
-      // 🔒 Ensure the object exists
       if (!room.rematchVotes) room.rematchVotes = {};
-
-      // record vote
       room.rematchVotes[playerId] = vote;
 
       const yesVotes = Object.values(room.rematchVotes).filter(v => v).length;
+      const totalPlayers = room.order.length;
 
-      // 🔥 ALL 4 AGREED → RESTART MATCH
-      if (yesVotes === 4) {
+      // 🔥 DEMO / AI MATCH → auto-restart if real player voted yes
+      const realPlayers = Object.values(room.playersData).filter(p => !p.isAI).length;
+
+      if (vote && realPlayers === 1) {
+        room.round = 1;
+        room.roundHistory = [];
+        room.rematchVotes = {};
+
+        for (const pid of room.order) {
+          const p = room.playersData[pid];
+          p.score = 0;
+          p.tricks = 0;
+          p.bid = null;
+        }
+
+        startGame(room);
+      }
+
+      // 🔥 Normal 4-player match
+      else if (yesVotes === totalPlayers) {
         room.round = 1;
         room.roundHistory = [];
         room.rematchVotes = {};
@@ -390,8 +431,36 @@ export function setupCardGame(io) {
       emit(io, room);
     });
 
+    socket.on("vote-rematch-7call", ({ roomId, playerId, vote }) => {
+      const room = rooms[roomId];
+      if (!room || !room.playersData[playerId]) return;
 
+      // Initialize rematchVotes if not exists
+      if (!room.rematchVotes) room.rematchVotes = {};
 
+      room.rematchVotes[playerId] = vote;
+
+      // Broadcast current votes to everyone
+      io.to(roomId).emit("update-rematch-votes", room.rematchVotes);
+
+      const votes = Object.values(room.rematchVotes);
+      const allVoted = votes.length === room.order.length;
+      const demoRoom = room.isDemo || false;
+
+      if (demoRoom && votes.includes(true)) {
+        // Start immediately if demo room and any vote is yes
+        startNewSevenCallsMatch(room);
+      } else if (!demoRoom && allVoted) {
+        // Only start if all players voted
+        const anyYes = votes.some(v => v);
+        if (anyYes) startNewSevenCallsMatch(room);
+        else {
+          // If all voted NO, end match normally
+          io.to(roomId).emit("rematch-cancelled");
+          room.rematchVotes = {};
+        }
+      }
+    });
 
     /* ===================== DISCONNECT ===================== */
     socket.on("disconnect", () => {
@@ -416,9 +485,17 @@ export function setupCardGame(io) {
 
       emit(io, room);
       if (room.turn === playerId) {
-        console.log("🤖 AI taking over immediately", playerId);
-        setTimeout(() => maybeTriggerAI(io, room),300);
+        console.log("🤖 AI taking over after grace", playerId);
+
+        // wait 1.5s before AI takeover
+        setTimeout(() => {
+          const pCheck = room.playersData[playerId];
+          if (!pCheck || pCheck.connected) return; // player reconnected
+          console.log("🤖 AI taking over (player still disconnected)", playerId);
+          maybeTriggerAI(io, room);
+        }, 1500);
       }
+
 
       // ⏳ GRACE PERIOD — DO NOT DELETE IMMEDIATELY
       setTimeout(() => {
@@ -530,13 +607,23 @@ function createRoom(roomId, gameType ) {
   }
 
   console.log("🛠️ Creating room", { roomId, gameType });
+  
 
   return {
     roomId,
     gameType,
+    matchType: "target",
     round: 1,
     maxPlayers: 4, 
     dealerIndex: 0,
+    teamScores: { 1: 0, 2: 0 },
+    teamTricks: { 1: 0, 2: 0 },
+    scoreHistory: { 1: [], 2: [] },
+    hiddenPower: null,
+    pendingReveal: null,
+    awaitingPowerReveal: null,
+    highestBid: 0,
+    highestBidder: null,
     entryFee: 0,
     phase: "waiting",
     playersData: {},
@@ -593,7 +680,30 @@ function startGame(room) {
   }
 }
 
+function startNewSevenCallsMatch(room) {
+  // Reset match state
+  room.phase = "waiting";
+  room.playedCards = [];
+  room.hiddenPower = {};
+  room.rematchVotes = {};
+  room.order = shuffle([...room.order]); // optional: shuffle player order
+  room.playersData = Object.fromEntries(
+    Object.entries(room.playersData).map(([pid, p]) => ({
+      [pid]: {
+        ...p,
+        hand: [],
+        bid: null,
+        tricks: 0,
+      },
+    }))
+  );
 
+  // Emit updated room to all
+  io.to(room.roomId).emit("update-room", room);
+
+  // Optionally trigger deal if needed
+  io.to(room.roomId).emit("start-sevencalls");
+}
 
 
 function resetRoomForRestart(room) {
