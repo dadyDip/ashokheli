@@ -30,8 +30,6 @@ export function Sidebar() {
 
   const menuItems = [
     { icon: House, label: "Home", path: "/" },
-    { icon: BookOpen, label: "Blog", path: "/blog" },
-    { icon: Gamepad2, label: "How to Play", path: "/how-to-play" },
     { icon: Map, label: "Roadmap", path: "/roadmap" },
     { icon: Info, label: "About", path: "/about" },
     { icon: HelpCircle, label: "Share & Earn", path: "/share" },
