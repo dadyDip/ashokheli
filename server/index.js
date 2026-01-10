@@ -2,7 +2,7 @@ import express from "express";
 import http from "http";
 import cors from "cors";
 import { Server } from "socket.io";
-
+import { getSystemWallet } from "./services/systemWallet.service.js";
 import { setupCardGame } from "./cardGame.js";
 import { setupLudoGame } from "./ludoGame.js"; 
 import authRoutes from "./auth/auth.routes.js";
@@ -34,6 +34,7 @@ io.on("connection", (socket) => {
 
 // restore games
 await recoverUnfinishedMatches(io);
+await getSystemWallet();
 
 // register games
 setupCardGame(io);

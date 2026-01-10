@@ -6,6 +6,8 @@ import { useSocket } from "@/components/SocketProvider";
 import { HeroSection } from "./design/HeroSection";
 import { GameRoomCard } from "./design/GameRoomCard";
 import { LudoRoomCard } from "./design/LudoRoomCard";
+import InstantMatchModal from "@/components/InstantMatchModal";
+
 
 export default function Home() {
   const router = useRouter();
@@ -15,6 +17,9 @@ export default function Home() {
   const [user, setUser] = useState(null);
   const [playerId, setPlayerId] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [selectedMode, setSelectedMode] = useState(null);
+
 
 
   // Ludo state
@@ -40,6 +45,48 @@ export default function Home() {
 
     router.push(`/game/cards/${demoRoomId}?mode=${mode}&demo=1`);
   };
+  const openInstantMatchModal = (mode) => {
+    setSelectedMode(mode);
+    setShowModal(true);
+  };
+
+  const startInstantMatch = async ({
+    mode,
+    matchType,
+    targetScore,
+    entryFee,
+  }) => {
+    if (!socketReady || !socket) {
+      alert("Server not ready");
+      return;
+    }
+
+    const res = await fetch("/api/rooms", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        action: "CREATE",
+        gameType: mode,
+        matchType,
+        targetScore: matchType === "target" ? targetScore : null,
+        entryFee: entryFee * 100,
+        maxPlayers: 4,
+        instant: true, // 👈 important
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data?.error || "Failed to create match");
+      return;
+    }
+
+    router.push(`/game/cards/${data.roomId}?mode=${mode}&instant=1`);
+  };
+
 
 
 
@@ -218,35 +265,45 @@ export default function Home() {
 
         <section className="max-w-6xl mx-auto mt-16 px-4">
           <h2 className="text-3xl font-bold mb-8 text-white">
-            🎮 Public Free Rooms
+            ⚡ Instant Match
           </h2>
+
 
           <div className="grid md:grid-cols-2 gap-6">
 
-            {/* CALLBREAK DEMO */}
             <GameRoomCard
-              title="CallBreak Practice"
-              description="Play CallBreak with AI opponents. Free & unlimited."
+              title="CallBreak"
+              description="Jump into a fast CallBreak match with smart AI."
+              players="3/4"
+              badge="Instant"
               gameImage="/images/card-game.jpg"
-              onJoin={() => requireAuth(() => startDemoCardGame("callbreak", "per-lead"))}
+              onJoin={() => requireAuth(() => openInstantMatchModal("callbreak"))}
             />
 
-            {/* SEVEN CALLS DEMO */}
             <GameRoomCard
-              title="Seven Calls Practice"
-              description="Practice Seven Calls against smart AI bots."
+              title="Seven Calls"
+              description="Start an instant Seven Calls match against AI."
+              players="3/4"
+              badge="Instant"
               gameImage="/images/sevencall-img-demo.jpg"
-              onJoin={() => requireAuth(() => startDemoCardGame("seven", "per-lead"))}
+              onJoin={() => requireAuth(() => openInstantMatchModal("seven"))}
             />
 
-            {/* LUDO DEMO — 🔥 LUDO BACKGROUND */}
             <GameRoomCard
-              title="Ludo Practice"
-              description="Play Ludo with 3 AI players. No entry fee."
+              title="Ludo"
+              description="Instant Ludo match with AI players."
+              players="3/4"
+              badge="Instant"
               gameImage="/images/ludo.jpg"
               onJoin={() => requireAuth(startDemoLudo)}
             />
 
+            <InstantMatchModal
+              open={showModal}
+              gameMode={selectedMode}
+              onClose={() => setShowModal(false)}
+              onStart={(config) => startInstantMatch(config)}
+            />
           </div>
         </section>
 

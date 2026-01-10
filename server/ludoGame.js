@@ -260,7 +260,7 @@ export function setupLudoGame(io) {
     setTimeout(() => {
       room._aiThinking = false;
       runAI(roomId, pid);
-    }, 200);
+    }, 600);
   }
 
 

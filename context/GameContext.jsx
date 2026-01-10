@@ -40,7 +40,7 @@ export function CardGameProvider(props = {}) {
       : 0;
 
   const winningAmount =
-    entryFee > 0 ? entryFee * realPlayerCount : 0;
+    entryFee > 0 ? entryFee * 4 : 0;
 
 
   /* ================= PLAYER ID ================= */

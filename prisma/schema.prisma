@@ -49,11 +49,19 @@ model User {
   isAI            Boolean   @default(false)
 }
 
+model SystemWallet {
+  id        String   @id @default(cuid())
+  balance   Int      @default(0) // store in smallest unit (coins / cents)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 
 model Room {
   id           String   @id @default(cuid())
 
   gameType     String?  
+  matchType   String   @default("target")
   targetScore  Int     @default(30)
   maxPlayers   Int?         
   isPublic     Boolean @default(true)

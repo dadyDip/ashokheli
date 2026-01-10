@@ -30,6 +30,11 @@ export function sevenCallsAIMove(io, room, pid) {
 
   const p = room.playersData?.[pid];
   if (!p || !p.isAI || p.connected) return;
+  p.memory ??= {
+    playedCards: [],
+    voidSuits: {} // pid -> Set(suits)
+  };
+
   if (room.turn !== pid) return;
 
   // block during pending reveal by others
@@ -166,15 +171,14 @@ function sevenCallsAIPlay(io, room, pid) {
     if (follow.length) legal = follow;
   }
 
-  legal.sort((a, b) => rank(a.value) - rank(b.value));
 
-  const chosen = leadSuit
-    ? legal[0]
-    : legal[Math.floor(legal.length / 2)];
+  const chosen = chooseAggressiveCard(room, pid, legal);
 
   if (!chosen) return;
 
   playCard(io, room, pid, chosen);
+  rememberPlay(room, pid, chosen);
+
 
   chainNextAI(io, room);
 }
@@ -184,20 +188,28 @@ function sevenCallsAIPlay(io, room, pid) {
 ====================================================== */
 
 function shouldRevealPower(room, pid) {
+  if (room.hiddenPower?.revealed) return false;
+
   const p = room.playersData[pid];
-  if (!room.hiddenPower || room.hiddenPower.revealed) return false;
-
   const team = p.team;
-  const oppTeam = team === 1 ? 2 : 1;
+  const opp = team === 1 ? 2 : 1;
 
-  const teamTricks = room.teamTricks?.[team] ?? 0;
-  const oppTricks = room.teamTricks?.[oppTeam] ?? 0;
+  // EARLY GAME CONTROL
+  if (room.trick <= 2) return true;
 
-  if (oppTricks >= teamTricks) return true;
-  if (room.trick >= 7) return true;
+  // IF LOSING → REVEAL
+  if ((room.teamTricks[opp] ?? 0) >= (room.teamTricks[team] ?? 0)) {
+    return true;
+  }
+
+  // ENDGAME = TOTAL DOMINATION
+  if (room.trick >= 4) return true;
 
   return false;
 }
+
+
+
 
 /* ======================================================
    AI CHAINING (CALLBREAK-STYLE)
@@ -213,3 +225,109 @@ function chainNextAI(io, room) {
     }, 200);
   }
 }
+
+
+function rememberPlay(room, pid, card) {
+  for (const player of Object.values(room.playersData)) {
+    if (!player.isAI) continue;
+
+    player.memory.playedCards.push({ pid, card });
+
+    const leadSuit = room.playedCards[0]?.card?.suit;
+    if (leadSuit && card.suit !== leadSuit) {
+      player.memory.voidSuits[pid] ??= new Set();
+      player.memory.voidSuits[pid].add(leadSuit);
+    }
+  }
+}
+
+function chooseAggressiveCard(room, pid, legal) {
+  const p = room.playersData[pid];
+  const trick = room.playedCards;
+  const leadSuit = trick[0]?.card?.suit;
+  const powerSuit =
+    room.hiddenPower?.suit ??
+    room.hiddenPower?.card?.suit ??
+    room.powerSuit;
+
+  /* ===============================
+     🧨 POWER CUT (DOMINATION)
+  =============================== */
+
+  if (
+    powerSuit &&
+    leadSuit &&
+    leadSuit !== powerSuit &&
+    legal.some(c => c.suit === powerSuit)
+  ) {
+    const highest = trick
+      .filter(t => t.card.suit === leadSuit)
+      .sort((a, b) => rank(b.card.value) - rank(a.card.value))[0];
+
+    // Only cut if trick is valuable
+    if (!highest || rank(highest.card.value) >= rank("Q")) {
+      return legal
+        .filter(c => c.suit === powerSuit)
+        .sort((a, b) => rank(a.value) - rank(b.value))[0];
+    }
+  }
+
+  /* ===============================
+     🎣 BAIT LOGIC (HUMAN TRAP)
+  =============================== */
+  const memory = p.memory;
+
+  // Lead suit opponents are void in
+  if (!leadSuit && memory) {
+    for (const [oppPid, suits] of Object.entries(memory.voidSuits)) {
+      const suit = [...suits][0];
+      const killer = p.hand
+        .filter(c => c.suit === suit)
+        .sort((a, b) => rank(b.value) - rank(a.value))[0];
+      if (killer) return killer;
+    }
+  }
+
+
+  if (!leadSuit) {
+    // Lead LOW in strong suit to bait A/K
+    const suitCounts = {};
+    for (const c of p.hand) suitCounts[c.suit] ??= 0, suitCounts[c.suit]++;
+
+    const baitSuit = Object.entries(suitCounts)
+      .sort((a, b) => b[1] - a[1])[0]?.[0];
+
+    const baitCards = p.hand
+      .filter(c => c.suit === baitSuit)
+      .sort((a, b) => rank(a.value) - rank(b.value));
+
+    if (baitCards.length > 1) return baitCards[0];
+  }
+
+  /* ===============================
+     ⚔️ TRICK WINNING LOGIC
+  =============================== */
+
+  if (leadSuit) {
+    const highest = trick
+      .filter(t => t.card.suit === leadSuit)
+      .sort((a, b) => rank(b.card.value) - rank(a.card.value))[0];
+
+    const winning = legal
+      .filter(c => c.suit === leadSuit)
+      .filter(c => rank(c.value) > rank(highest.card.value))
+      .sort((a, b) => rank(a.value) - rank(b.value));
+
+    if (winning.length) {
+      // Win with minimum force
+      return winning[0];
+    }
+  }
+
+  /* ===============================
+     🗑️ DUMP TRASH (LOSS CONTROL)
+  =============================== */
+
+  return legal.sort((a, b) => rank(a.value) - rank(b.value))[0];
+}
+

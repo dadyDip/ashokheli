@@ -6,8 +6,8 @@ import {
   playCard as playSevenCard,
 } from "./games/sevenCalls.js";
 import prisma from "./prisma.js";
-import { lockMatchFunds } from "./services/funds.service.js";
-import { settleMatch, settleTeamMatch, } from "./services/funds.service.js";
+import { lockMatchFunds, lockMatchFundsWithAI } from "./services/funds.service.js";
+import { settleMatch, settleTeamMatch, settleMatchWithAI } from "./services/funds.service.js";
 import { triggerAITurn } from "./ai/ai.controller.js";
 import { getAIUserId } from './aiUser.js';
 import { revealPower } from "./games/sevenCalls.js";
@@ -59,12 +59,13 @@ export function setupCardGame(io) {
 
           if (!room) {
             // 🎮 DEMO ROOM — NO DB
-            if (demo) {
+            if (demo === true) {
               const gameType = mode === "seven" ? "seven" : "callbreak";
 
               room = createRoom(roomId, gameType);
 
               room.gameType = gameType;
+              room.hasAI = false;
 
               if (targetScore && Number(targetScore) > 0) {
                 room.matchType = "target";
@@ -110,6 +111,7 @@ export function setupCardGame(io) {
               room = createRoom(roomId, dbRoom.gameType);
               room.gameType = dbRoom.gameType;
               room.mode = dbRoom.gameType;
+              room.hasAI = false;
               room.matchType = dbRoom.matchType || "target";
               room.entryFee = dbRoom.entryFee;
               room.maxPlayers = dbRoom.maxPlayers ?? 4;
@@ -183,18 +185,13 @@ export function setupCardGame(io) {
           /* ================= ENTRY FEE CHECK ================= */
           if (!room.isDemo && room.entryFee > 0) {
             const balance = await getUserBalance(userId);
-
-            console.log("💰 balance check", {
-              userId,
-              balance,
-              required: room.entryFee,
-            });
-
             if (balance < room.entryFee) {
               socket.emit("join-error", "❌ Not enough balance");
               return;
             }
           }
+
+
 
           /* ================= SAFE TO JOIN ================= */
           socket.join(roomId);
@@ -212,8 +209,9 @@ export function setupCardGame(io) {
             roomId,
             players: Object.keys(room.playersData).length,
           });
-          if (room.isDemo) {
-            const aiUserId = await getAIUserId();
+          // 🤖 AUTO-FILL AI FOR REAL MATCHES
+          if (!room.isDemo) {
+            const aiUserId = await getAIUserId(); // server-owned user
 
             while (room.order.length < room.maxPlayers) {
               const aiPid = `AI-${room.order.length}-${room.roomId}`;
@@ -228,12 +226,15 @@ export function setupCardGame(io) {
                 score: 0,
                 connected: false,
                 isAI: true,
+                isPaidAI: true,
                 socketId: null,
               };
 
               room.order.push(aiPid);
             }
+            room.hasAI = true;
           }
+
           /* ================= START MATCH IF READY ================= */
           if (
             Object.keys(room.playersData).length === room.maxPlayers &&
@@ -251,15 +252,22 @@ export function setupCardGame(io) {
                   status: "WAITING",
                   roomId: room.roomId,
                   players: {
-                    create: Object.values(room.playersData).map(p => ({
-                      userId: p.userId,
-                    })),
+                    create: Object.values(room.playersData)
+                      .filter(p => !p.isAI)
+                      .map(p => ({ userId: p.userId })),
                   },
                 },
               });
 
             room.matchId = match.id;
-            await lockMatchFunds(match.id);
+            if (room.hasAI) {
+              await lockMatchFundsWithAI(match.id);
+            } else {
+              await lockMatchFunds(match.id);
+            }
+
+
+
             io.to(room.roomId).emit("funds-locked");
           }
 
@@ -432,35 +440,51 @@ export function setupCardGame(io) {
     });
 
     socket.on("vote-rematch-7call", ({ roomId, playerId, vote }) => {
-      const room = rooms[roomId];
-      if (!room || !room.playersData[playerId]) return;
+      const room = cardRooms[roomId];
 
-      // Initialize rematchVotes if not exists
+      // ✅ Seven Calls uses "finished"
+      if (!room || room.phase !== "finished") return;
+      if (!room.playersData[playerId]) return;
+
       if (!room.rematchVotes) room.rematchVotes = {};
-
       room.rematchVotes[playerId] = vote;
 
-      // Broadcast current votes to everyone
+      // 🔥 emit votes so UI updates
       io.to(roomId).emit("update-rematch-votes", room.rematchVotes);
 
+      const totalPlayers = room.order.length;
       const votes = Object.values(room.rematchVotes);
-      const allVoted = votes.length === room.order.length;
-      const demoRoom = room.isDemo || false;
+      const yesVotes = votes.filter(v => v).length;
 
-      if (demoRoom && votes.includes(true)) {
-        // Start immediately if demo room and any vote is yes
-        startNewSevenCallsMatch(room);
-      } else if (!demoRoom && allVoted) {
-        // Only start if all players voted
-        const anyYes = votes.some(v => v);
-        if (anyYes) startNewSevenCallsMatch(room);
-        else {
-          // If all voted NO, end match normally
-          io.to(roomId).emit("rematch-cancelled");
-          room.rematchVotes = {};
-        }
+      // ✅ DEMO / AI MATCH (same behavior as Call Break)
+      const realPlayers = Object.values(room.playersData).filter(p => !p.isAI).length;
+      if (vote === true && realPlayers === 1) {
+        resetSevenCallsForRematch(room);
+        startSevenCalls(room);
+        emit(io, room);
+        maybeTriggerAI(io, room);
+
+        return;
+      }
+
+      // ✅ NORMAL MATCH → ALL must vote YES
+      if (votes.length === totalPlayers && yesVotes === totalPlayers) {
+        resetSevenCallsForRematch(room);
+        startSevenCalls(room);
+        emit(io, room);
+        maybeTriggerAI(io, room);
+
+        return;
+      }
+
+      // ❌ Everyone voted NO
+      if (votes.length === totalPlayers && yesVotes === 0) {
+        room.rematchVotes = {};
+        io.to(roomId).emit("rematch-cancelled");
       }
     });
+
+
 
     /* ===================== DISCONNECT ===================== */
     socket.on("disconnect", () => {
@@ -529,23 +553,32 @@ export async function onGameEnded(room) {
   if (!winnerPid) throw new Error("No winner");
 
   const winnerPlayer = room.playersData[winnerPid];
-  if (!winnerPlayer || !winnerPlayer.userId) {
-    throw new Error("Winner has no userId");
+  if (!winnerPlayer) {
+    throw new Error("Winner player not found");
   }
 
-  const winnerUserId = winnerPlayer.userId; // REAL DB ID
+  const winnerUserId = winnerPlayer.userId;
 
-  console.log("🏁 Settling match", { matchId: room.matchId, winnerUserId });
+  console.log("🏁 Settling match", {
+    matchId: room.matchId,
+    winnerPid,
+    winnerUserId,
+    isAI: winnerPlayer.isAI,
+  });
 
+  // ================= SEVEN / TEAM =================
   if (room.gameType === "seven") {
-    await settleTeamMatch(room, [winnerUserId]);
+    await settleTeamMatch(room.matchId, [winnerUserId]);
+    return;
+  }
+
+  // ================= CALLBREAK =================
+  if (winnerPlayer.isAI) {
+    await settleMatchWithAI(room.matchId, winnerUserId);
   } else {
-    await settleMatch(room.matchId, winnerUserId);
+    await settleMatch(room.matchId, winnerUserId); // OLD FLOW (works)
   }
 }
-
-
-
 
 export function restoreRoom(roomId, gameType) {
   if (cardRooms[roomId]) return cardRooms[roomId];
@@ -599,8 +632,6 @@ function maybeTriggerAI(io, room) {
   }, 300);
 }
 
-
-
 function createRoom(roomId, gameType ) {
     if (!gameType) {
     throw new Error("❌ createRoom called without gameType");
@@ -638,6 +669,7 @@ function createRoom(roomId, gameType ) {
     rematchVotes: {},
   };
 }
+
 function createPlayer(id, socketId, name) {
   return {
     id,
@@ -680,32 +712,6 @@ function startGame(room) {
   }
 }
 
-function startNewSevenCallsMatch(room) {
-  // Reset match state
-  room.phase = "waiting";
-  room.playedCards = [];
-  room.hiddenPower = {};
-  room.rematchVotes = {};
-  room.order = shuffle([...room.order]); // optional: shuffle player order
-  room.playersData = Object.fromEntries(
-    Object.entries(room.playersData).map(([pid, p]) => ({
-      [pid]: {
-        ...p,
-        hand: [],
-        bid: null,
-        tricks: 0,
-      },
-    }))
-  );
-
-  // Emit updated room to all
-  io.to(room.roomId).emit("update-room", room);
-
-  // Optionally trigger deal if needed
-  io.to(room.roomId).emit("start-sevencalls");
-}
-
-
 function resetRoomForRestart(room) {
   room.phase = "waiting";
   room.playedCards = [];
@@ -729,6 +735,44 @@ function resetRoomForRestart(room) {
   }
 }
 
+function resetSevenCallsForRematch(room) {
+  // 🔥 CORE STATE
+  room.phase = "bidding";
+  room.round = 1;
+  room.turn = null;
+  room.playedCards = [];
+  room.rematchVotes = {};
+
+  // 🔥 BIDDING / POWER STATE
+  room.bids = {};
+  room.highestBid = 0;
+  room.highestBidder = null;
+  room.trumpSuit = null;
+  room.trumpCard = null;
+  room.hiddenPower = null;
+  room.pendingReveal = null;
+  room.awaitingPowerReveal = null;
+
+  // 🔥 TEAM STATE
+  room.teamScores = { 1: 0, 2: 0 };
+  room.teamTricks = { 1: 0, 2: 0 };
+  room.scoreHistory = { 1: [], 2: [] };
+  room.roundHistory = [];
+
+  // 🔥 PLAYER RESET
+  for (const pid of room.order) {
+    const p = room.playersData[pid];
+    p.hand = [];
+    p.bid = null;
+    p.tricks = 0;
+    p.score = 0;
+    p.powerCard = null;
+    p.passedReveal = false;
+  }
+
+  // 🔥 VERY IMPORTANT
+  assignSevenCallsTeams(room);
+}
 
 // async function resolveMatch(room) {
 //   if (!room.matchId) return;
@@ -754,7 +798,6 @@ async function getUserBalance(userId) {
 
   return user?.balance ?? 0;
 }
-
 
 
 export {

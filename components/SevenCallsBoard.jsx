@@ -357,7 +357,7 @@ export default function SevenCallsBoard() {
           >
 
           <div className="font-semibold mb-1">
-            Winning Amount: 💰 TK{winningAmount}
+            Winning Amount: 💰 TK{winningAmount / 100}
           </div>
         </div>
       </>
@@ -718,7 +718,7 @@ export default function SevenCallsBoard() {
             transition={{ delay: 0.25 }}
             className="text-3xl font-bold text-yellow-300"
           >
-            💰 Winning Amount: {winningAmount / 100} TK
+            💰 Winning Amount: {winningAmount / 200} TK
           </motion.div>
 
           {/* PLAYER VOTE BOXES (UNCHANGED) */}
