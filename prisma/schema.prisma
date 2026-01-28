@@ -7,167 +7,193 @@ datasource db {
   url      = "file:./dev.db"
 }
 
-// ===================== USER =====================
 model User {
-  id              String   @id @default(cuid())
-  firstName       String
-  lastName        String
-  email           String   @unique
-  phone           String?  @unique
-  password        String
-
-  balance         Int      @default(0)
-  
-  promoCode String? @unique   // MUST BE OPTIONAL
-  referredById String?
-  referredBy   User? @relation("UserReferral", fields: [referredById], references: [id])
-  referrals    User[] @relation("UserReferral")
-  lockedBalance   Int      @default(0)
-  totalDeposited  Int      @default(0)
-  totalWithdrawn  Int      @default(0)
-
-  gamesPlayed     Int      @default(0)
-  wins            Int      @default(0)
-  losses          Int      @default(0)
-
-  isVerified      Boolean  @default(false)
-  isBanned        Boolean  @default(false)
-
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  lastActiveAt    DateTime?
-  role            String   @default("user")
-
-  deposits        DepositRequest[]
-  withdraws       WithdrawRequest[]
-  transactions    Transaction[]
-  rooms           Room[]        @relation("RoomHost")
-  participations  RoomPlayer[]
-
-
-  matchPlayers    MatchPlayer[]
-  isAI            Boolean   @default(false)
+  id             String            @id @default(cuid())
+  casinoId       Int?              @unique
+  firstName      String
+  lastName       String
+  phone          String?           @unique
+  password       String
+  balance        Int               @default(0)
+  promoCode      String?           @unique
+  referredById   String?
+  lockedBalance  Int               @default(0)
+  totalDeposited Int               @default(0)
+  totalWithdrawn Int               @default(0)
+  gamesPlayed    Int               @default(0)
+  wins           Int               @default(0)
+  losses         Int               @default(0)
+  isVerified     Boolean           @default(false)
+  isBanned       Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  lastActiveAt   DateTime?
+  role           String            @default("user")
+  isAI           Boolean           @default(false)
+  casinoGames    CasinoGame[]
+  casinoSpins    CasinoSpin[]
+  deposits       DepositRequest[]
+  gameSessions   GameSession[]
+  matchPlayers   MatchPlayer[]
+  rooms          Room[]            @relation("RoomHost")
+  participations RoomPlayer[]
+  transactions   Transaction[]
+  referredBy     User?             @relation("UserReferral", fields: [referredById], references: [id])
+  referrals      User[]            @relation("UserReferral")
+  withdraws      WithdrawRequest[]
 }
 
 model SystemWallet {
   id        String   @id @default(cuid())
-  balance   Int      @default(0) // store in smallest unit (coins / cents)
+  balance   Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
-
 model Room {
-  id           String   @id @default(cuid())
-
-  gameType     String?  
-  matchType   String   @default("target")
-  targetScore  Int     @default(30)
-  maxPlayers   Int?         
-  isPublic     Boolean @default(true)
-
-
-  entryFee     Int      @default(0) // PAISA
-  status       String   @default("WAITING")
-
-  hostId       String?     
-  host         User?   @relation("RoomHost", fields: [hostId], references: [id])
-
-  createdAt    DateTime @default(now())
-  players      RoomPlayer[]
+  id          String       @id @default(cuid())
+  gameType    String?
+  matchType   String       @default("target")
+  targetScore Int          @default(30)
+  maxPlayers  Int?
+  isPublic    Boolean      @default(true)
+  isInstant   Boolean      @default(false)
+  entryFee    Int          @default(0)
+  status      String       @default("WAITING")
+  hostId      String?
+  createdAt   DateTime     @default(now())
+  host        User?        @relation("RoomHost", fields: [hostId], references: [id])
+  players     RoomPlayer[]
 }
 
-
 model RoomPlayer {
-  id        String   @id @default(cuid())
+  id       String   @id @default(cuid())
   roomId   String
   userId   String
-
-  room     Room @relation(fields: [roomId], references: [id])
-  user     User @relation(fields: [userId], references: [id])
-
   joinedAt DateTime @default(now())
+  user     User     @relation(fields: [userId], references: [id])
+  room     Room     @relation(fields: [roomId], references: [id])
 
   @@unique([roomId, userId])
 }
+
 model Match {
-  id          String   @id @default(cuid())
-
-  gameType    String   // "CALLBREAK" | "SEVEN" | "LUDO"
-  stake       Int      // PAISA, per player
-
-  status      String   // "WAITING" | "PLAYING" | "FINISHED" | "CANCELLED"
-
-  roomId      String?  // runtime room reference (socket server)
-  
-  createdAt   DateTime @default(now())
-  finishedAt  DateTime?
-
-  players     MatchPlayer[]
+  id         String        @id @default(cuid())
+  gameType   String
+  stake      Int
+  status     String
+  roomId     String?
+  createdAt  DateTime      @default(now())
+  finishedAt DateTime?
+  players    MatchPlayer[]
 }
+
 model MatchPlayer {
-  id        String   @id @default(cuid())
+  id       String   @id @default(cuid())
   matchId  String
   userId   String
-
   isWinner Boolean?
   score    Int?
-
-  match Match @relation(fields: [matchId], references: [id])
-  user  User  @relation(fields: [userId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+  match    Match    @relation(fields: [matchId], references: [id])
 
   @@unique([matchId, userId])
 }
 
 model DepositRequest {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   userId     String
   method     String
   amount     Int
-  trxId      String   @unique
-  status     String   @default("pending")
-  createdAt  DateTime @default(now())
+  trxId      String    @unique
+  status     String    @default("pending")
+  createdAt  DateTime  @default(now())
   approvedAt DateTime?
-
-  user User @relation(fields: [userId], references: [id])
+  user       User      @relation(fields: [userId], references: [id])
 
   @@index([status])
   @@index([createdAt])
 }
 
 model WithdrawRequest {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   userId      String
   method      String
   amount      Int
   account     String
-  status      String   @default("pending")
-  createdAt   DateTime @default(now())
+  status      String    @default("pending")
+  createdAt   DateTime  @default(now())
   processedAt DateTime?
-
-  user User @relation(fields: [userId], references: [id])
+  user        User      @relation(fields: [userId], references: [id])
 
   @@index([status])
   @@index([createdAt])
 }
 
-
 model Transaction {
-  id         String   @id @default(cuid())
+  id        String   @id @default(cuid())
+  userId    String?
+  type      String
+  amount    Int
+  status    String
+  provider  String?
+  reference String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+model CasinoGame {
+  id         String    @id @default(cuid())
   userId     String
-  user       User     @relation(fields: [userId], references: [id])
+  gameType   String
+  stake      Int
+  multiplier Float?
+  matchId    String    @unique
+  result     String?
+  winAmount  Int?
+  status     String    @default("WAITING")
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  user       User      @relation(fields: [userId], references: [id])
 
-  // "DEPOSIT" | "WITHDRAW" | "WIN" | "LOSS"
-  type       String
+  @@index([userId])
+  @@index([status])
+  @@index([gameType])
+}
 
-  amount     Int
+model GameSession {
+  id        String   @id @default(cuid())
+  sessionId String   @unique
+  userId    String
+  gameCode  String
+  balance   Int
+  provider  String
+  brandId   String
+  status    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+}
 
-  // "PENDING" | "COMPLETED" | "FAILED"
-  status     String
+model CasinoSpin {
+  id        String   @id @default(cuid())
+  userId    String
+  gameCode  String
+  gameName  String
+  betAmount Int
+  winAmount Int
+  netResult Int
+  gameRound String   @unique
+  timestamp DateTime
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now())
+  matchId   String?
+  user      User     @relation(fields: [userId], references: [id])
 
-  // "BKASH" | "NAGAD" | "ROCKET"
-  provider   String?
-  reference  String?
-
-  createdAt  DateTime @default(now())
+  @@index([userId])
+  @@index([timestamp])
+  @@index([gameCode])
+  @@index([matchId])
+  @@index([status])
+  @@index([gameRound])
 }

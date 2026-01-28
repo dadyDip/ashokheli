@@ -2,32 +2,55 @@ import { prisma } from "@/lib/prisma";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
+// normalize BD phone
+const normalizePhone = (phone) => {
+  const cleaned = phone.replace(/\D/g, "");
+  if (cleaned.startsWith("880")) return "0" + cleaned.slice(3);
+  if (cleaned.startsWith("0")) return cleaned;
+  return cleaned;
+};
+
 export async function POST(req) {
   try {
-    const { email, password } = await req.json();
+    const { phone, password } = await req.json();
+
+    if (!phone || !password) {
+      return Response.json(
+        { error: "Phone and password are required" },
+        { status: 400 }
+      );
+    }
+
+    const normalizedPhone = normalizePhone(phone);
 
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { phone: normalizedPhone },
     });
 
     if (!user) {
-      return new Response("Invalid credentials", { status: 401 });
+      return Response.json(
+        { error: "Account not found. Please register." },
+        { status: 404 }
+      );
     }
 
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
-      return new Response("Invalid credentials", { status: 401 });
+      return Response.json(
+        { error: "Invalid password" },
+        { status: 401 }
+      );
     }
 
     const token = jwt.sign(
       {
-        id: user.id,          // 🔥 MUST BE `id`
-        email: user.email,
+        id: user.id,      // 🔥 SAME AS BEFORE
         role: user.role,
       },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
+
 
     return Response.json({
       token,
@@ -35,12 +58,17 @@ export async function POST(req) {
         id: user.id,
         firstName: user.firstName,
         lastName: user.lastName,
-        email: user.email,
-        role: user.role, // ✅ THIS WAS MISSING
+        balance: user.balance,
+        promoCode: user.promoCode,
+        role: user.role,
       },
     });
 
   } catch (err) {
-    return new Response("Server error", { status: 500 });
+    console.error(err);
+    return Response.json(
+      { error: "Server error" },
+      { status: 500 }
+    );
   }
 }

@@ -16,6 +16,44 @@ function rank(v) {
   return order.indexOf(v);
 }
 
+function ensureAIMemory(room) {
+  room._aiMemory ||= {
+    played: [],
+    suitsGone: {
+      hearts: 0,
+      diamonds: 0,
+      clubs: 0,
+      spades: 0,
+    },
+    trumpsPlayed: 0,
+  };
+}
+function ensureWinControl(room) {
+  room._winControl ||= {
+    games: 0,
+    userWins: 0,
+  };
+}
+
+function winPressure(room) {
+  ensureWinControl(room);
+
+  const { games, userWins } = room._winControl;
+  if (games < 5) return 0; // warm-up
+
+  const rate = userWins / games;
+
+  if (rate > 0.30) return 1;   // crush harder
+  if (rate < 0.20) return -1;  // ease a bit
+  return 0;
+}
+
+
+function isBiased(room) {
+  return room.fairness?.mode === "SOFT_BIAS";
+}
+
+
 /* ======================================================
    ENTRY POINT — SINGLE SOURCE OF TRUTH
 ====================================================== */
@@ -59,25 +97,70 @@ export function callbreakAIMove(io, room, pid) {
 /* ======================================================
    BIDDING AI
 ====================================================== */
-
 function callbreakAIBid(io, room, pid) {
   const p = room.playersData[pid];
   if (!p || p.bid !== null || room.turn !== pid) return;
 
+  // Step 1: Score own hand realistically
   let score = 0;
   for (const c of p.hand) {
-    if (c.value === "A") score += 1;
-    if (["K","Q"].includes(c.value)) score += 0.5;
-    if (c.suit === room.trumpSuit) score += 0.75;
+    if (c.value === "A") score += 1.5;      // Ace almost guarantees 1 trick
+    else if (c.value === "K") score += 1;   // King likely wins a trick
+    else if (c.value === "Q") score += 0.7;
+    else if (c.value === "J") score += 0.5;
+
+    if (c.suit === room.trumpSuit) score += 0.8; // trump boost
   }
 
-  const bid = Math.max(1, Math.min(8, Math.round(score)));
+  // Small bias for paid / hard mode
+  if (isBiased(room)) score += 0.5;
 
+  // Step 2: Account for remaining tricks
+  const totalSoFar = Object.values(room.playersData)
+    .map(p => p.bid)
+    .filter(b => b !== null)
+    .reduce((a,b) => a + b, 0);
+
+  const playersLeft = Object.values(room.playersData)
+    .filter(p => p.bid === null).length;
+
+  const remainingTricks = Math.max(0, 13 - totalSoFar);
+
+  // Step 3: Calculate safe bid
+  let bid = Math.round(score);
+
+  // 🔹 Smart cap: cannot claim more than realistic remaining tricks
+  const maxSafe = Math.ceil(remainingTricks / playersLeft);
+  bid = Math.min(bid, maxSafe);
+
+  // Step 4: Prevent overbidding too high
+  bid = Math.min(bid, 7); // max bid AI will take realistically
+
+  // Step 5: Never bid 0, always secure at least 1 trick
+  bid = Math.max(bid, 1);
+
+  // Step 6: Smooth sequential progression
+  const previousBid = Object.values(room.playersData)
+    .map(p => p.bid)
+    .filter(b => b !== null)
+    .pop();
+
+  if (previousBid) {
+    // Avoid weird jumps, keep ±1 trick
+    bid = Math.min(bid, previousBid + 1);
+    bid = Math.max(bid, previousBid - 1);
+  }
+
+  // Step 7: Optional “confidence tweak” to win your bid
+  // If pressure high (user won too often), AI can add +1 trick safely
+  if (winPressure(room) === 1) bid = Math.min(bid + 1, maxSafe);
+
+  // Final bid placement
   placeBid(room, pid, bid);
   io.to(room.roomId).emit("update-room", room);
-
   chainNextAI(io, room);
 }
+
 
 /* ======================================================
    PLAYING AI
@@ -94,6 +177,15 @@ function callbreakAIPlay(io, room, pid) {
   if (!chosen) return;
 
   playCard(io, room, pid, chosen);
+  ensureAIMemory(room);
+
+  room._aiMemory.played.push(chosen);
+  room._aiMemory.suitsGone[chosen.suit]++;
+
+  if (chosen.suit === room.trumpSuit) {
+    room._aiMemory.trumpsPlayed++;
+  }
+
 
   // 🔥 FORCE SYNC — THIS FIXES REFRESH BUG
   io.to(room.roomId).emit("update-room", room);
@@ -125,35 +217,41 @@ function getLegalCards(p, room) {
   return legal.length ? legal : [...p.hand];
 }
 function pickCardSmart(p, legal, room) {
+  ensureAIMemory(room);
+
+  const mem = room._aiMemory;
   const trump = room.trumpSuit;
   const played = room.playedCards;
   const first = played.length === 0;
+  const biased = room.fairness?.mode === "SOFT_BIAS";
 
-  // Sort high → low
   const highFirst = [...legal].sort((a,b) => rank(b.value) - rank(a.value));
   const lowFirst  = [...legal].sort((a,b) => rank(a.value) - rank(b.value));
 
-  // 🟢 LEADING
+  // 🧠 LEADING
   if (first) {
-    // Prefer strong non-trump lead
-    const strongNonTrump = highFirst.filter(
-      c => c.suit !== trump && rank(c.value) >= rank("Q")
-    );
-    if (strongNonTrump.length) return strongNonTrump[0];
+    // If trump mostly exhausted → dominate
+    if (biased && mem.trumpsPlayed >= 7) {
+      const strong = highFirst.filter(c => c.suit === trump);
+      if (strong.length) return strong[0];
+    }
 
-    // Else dump lowest non-trump
-    const safe = lowFirst.filter(c => c.suit !== trump);
-    if (safe.length) return safe[0];
+    // Lead suit that's mostly gone (safe)
+    const safeSuit = Object.entries(mem.suitsGone)
+      .filter(([_, count]) => count >= 9)
+      .map(([s]) => s);
 
-    // Else forced trump
-    return lowFirst[0];
+    const safeLead = highFirst.find(c => safeSuit.includes(c.suit));
+    if (safeLead) return safeLead;
+
+    // Default safe play
+    return lowFirst.find(c => c.suit !== trump) || lowFirst[0];
   }
 
-  // 🟢 FOLLOWING
+  // 🧠 FOLLOWING
   const leadSuit = played[0].card.suit;
   const winning = getWinningCard(played, trump);
 
-  // Can beat current winner?
   const killers = legal.filter(c =>
     beats(c, winning, trump, leadSuit)
   );
@@ -163,9 +261,28 @@ function pickCardSmart(p, legal, room) {
     return killers.sort((a,b) => rank(a.value) - rank(b.value))[0];
   }
 
-  // Can't win → dump lowest
+  // 🧠 PAID MATCH → SMART SACRIFICE
+  if (biased) {
+    const dump = lowFirst.filter(c => c.suit !== trump);
+    if (dump.length) return dump[0];
+  }
+  const pressure = winPressure(room);
+
+  if (pressure === 1) {
+    // AI goes ruthless
+    const killers = legal.filter(c =>
+      beats(c, getWinningCard(played, trump), trump, played[0]?.card?.suit)
+    );
+    if (killers.length) {
+      return killers.sort((a,b) => rank(a.value) - rank(b.value))[0];
+    }
+  }
+
+
   return lowFirst[0];
 }
+
+
 function beats(card, current, trump, leadSuit) {
   if (card.suit === current.suit) {
     return rank(card.value) > rank(current.value);

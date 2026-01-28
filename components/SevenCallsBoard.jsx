@@ -6,6 +6,15 @@ import Confetti from "react-confetti";
 import { useCardGame } from "../context/GameContext";
 import { useRouter } from "next/navigation";
 import { useMobileFullscreen } from "@/app/useMobileFullscreen";
+import { useLang } from "@/app/i18n/useLang";
+import {
+  Trophy,
+  RotateCcw,
+  LogOut,
+  Coins,
+  Wallet,
+} from "lucide-react";
+import { useWalletBalance } from "@/components/hooks/useWalletBalance";
 
 import Card from "./Card";
 
@@ -90,12 +99,17 @@ export default function SevenCallsBoard() {
   
   const playSound = useSounds();
 
+  if (!playerId) {
+    return <div>⏳ Initializing player...</div>;
+  }
+
   if (!room) return <Center>Connecting…</Center>;
   const me = room.playersData?.[playerId];
   if (!me) return <Center>Registering…</Center>;
   const fullscreenReady = useMobileFullscreen();
   const phase = room.phase;
   const order = room.order || [];
+  const { t } = useLang();
   const pendingReveal =
   room.pendingReveal &&
   room.pendingReveal.playerId === me.playerId;
@@ -103,6 +117,8 @@ export default function SevenCallsBoard() {
   const [rematchVotes, setRematchVotes] = useState({});
   const scoringType = room.matchType || "target";
   const targetScore = room.targetScore ?? 30;
+  const { balance, loading } = useWalletBalance();
+  
   useEffect(() => {
     const html = document.documentElement;
     const body = document.body;
@@ -364,8 +380,9 @@ export default function SevenCallsBoard() {
     );
   };
 
-  /* ================= WAITING ================= */
   if (room.phase === "waiting") {
+    const [copied, setCopied] = useState(false);
+    
     const seatPositions = [
       // Bottom (YOU)
       `bottom-[40px] left-1/2 -translate-x-1/2
@@ -383,15 +400,37 @@ export default function SevenCallsBoard() {
       [@media(max-height:600px)]:right-[80px]`,
     ];
 
-    // Detect portrait mode
-    const isPortrait = typeof window !== "undefined" && window.innerHeight > window.innerWidth;
+    // Check if roomId exists, if not use a fallback
+    const roomId = room.roomId || room.id || 'Waiting for ID...';
+
+    const copyRoomId = () => {
+      if (roomId && roomId !== 'Waiting for ID...') {
+        navigator.clipboard.writeText(roomId).then(() => {
+          setCopied(true);
+          // Reset after 2 seconds
+          setTimeout(() => {
+            setCopied(false);
+          }, 2000);
+        }).catch(() => {
+          // Optional: Show error state briefly
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        });
+      }
+    };
+
+    // Function to extract first name only
+    const getFirstName = (fullName) => {
+      if (!fullName) return "Waiting…";
+      return fullName.split(' ')[0];
+    };
 
     return (
       <>
         {/* TOP LEFT LOGO */}
         <div className="fixed z-50 top-[env(safe-area-inset-top)] left-[env(safe-area-inset-left)] px-4 py-3">
           <h1
-            className="antialiased text-3xl tracking-wide font-semibold bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent"
+            className="antialiased text-2xl tracking-wide font-semibold bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent"
             style={{ fontFamily: "'Story Script', cursive" }}
           >
             AshoKheli
@@ -399,35 +438,91 @@ export default function SevenCallsBoard() {
         </div>
 
         <TableContainer>
-          {/* CENTER */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
+          {/* ROOM ID DISPLAY - Compact and Clean */}
+          <div className="fixed z-50 right-4 top-4 sm:top-6
+            flex items-center gap-3 px-4 py-3
+            bg-black/60 backdrop-blur-md rounded-xl
+            border border-emerald-500/30
+            shadow-[0_0_20px_rgba(16,185,129,0.15)]">
+            
+            {/* Copy Button at Start with Success State */}
+            <button
+              onClick={copyRoomId}
+              className={`p-2.5 rounded-lg transition-all duration-200 
+                shadow-[0_0_10px_rgba(16,185,129,0.3)]
+                hover:shadow-[0_0_15px_rgba(16,185,129,0.5)]
+                text-white ${copied 
+                  ? 'bg-green-600 hover:bg-green-700' 
+                  : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
+              title={copied ? "Copied!" : "Copy Room ID"}
+              disabled={roomId === 'Waiting for ID...'}
+            >
+              {copied ? (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
+                    d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" 
+                    d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              )}
+            </button>
+            
+            {/* Room ID Text */}
+            <div className="flex flex-col">
+              <div className="text-xs text-emerald-300/70 mb-1">Room ID</div>
+              <span className="text-sm font-mono font-medium text-emerald-300 max-w-[140px] truncate">
+                {roomId}
+              </span>
+              {copied && (
+                <motion.div
+                  initial={{ opacity: 0, y: -5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -5 }}
+                  className="text-[10px] text-green-400 mt-1"
+                >
+                  Copied to clipboard!
+                </motion.div>
+              )}
+            </div>
+          </div>
+
+          {/* CENTER CONTENT - Moved up */}
+          <div className="absolute inset-0 flex flex-col items-center justify-start pt-16">
+            {/* Smaller Spade Icon */}
             <motion.div
               animate={{ scale: [1, 1.05, 1] }}
               transition={{ duration: 2, repeat: Infinity }}
-              className="text-yellow-400 text-[90px]"
+              className="text-yellow-400 text-[65px] mb-3"
             >
               ♠
             </motion.div>
 
-            <div className="mt-4 text-lg tracking-widest font-semibold text-emerald-300 uppercase">
-              Seven Calls
+            {/* Call Break Text */}
+            <div className="text-xl font-bold tracking-widest uppercase text-emerald-300">
+              Call Break
             </div>
           </div>
 
-          {/* PLAYERS */}
+          {/* PLAYERS - Show first name only */}
           {rotated.map((pid, index) => {
             const player = room.playersData[pid];
+            const firstName = getFirstName(player?.name);
+            
             return (
               <PlayerSeat
                 key={pid}
-                name={player?.name || "Waiting…"}
+                name={firstName}
                 className={seatPositions[index]}
               />
             );
           })}
 
           {/* WAITING TEXT */}
-          <div className="absolute bottom-[130px] left-1/2 -translate-x-1/2">
+          <div className="absolute bottom-[120px] left-1/2 -translate-x-1/2">
             <motion.div
               animate={{ opacity: [0.5, 1, 0.5] }}
               transition={{ duration: 1.5, repeat: Infinity }}
@@ -437,23 +532,7 @@ export default function SevenCallsBoard() {
             </motion.div>
           </div>
 
-          {/* ROTATE PHONE TIP */}
-          {isPortrait && (
-            <div className="absolute bottom-[80px] left-1/2 -translate-x-1/2 flex items-center gap-2 px-4 py-2 bg-yellow-500/10 rounded-full text-yellow-300 text-sm">
-              <motion.div
-                animate={{ rotate: [0, 15, -15, 0] }}
-                transition={{ repeat: Infinity, duration: 1.5 }}
-              >
-                🔄
-              </motion.div>
-              Rotate your phone for better experience
-            </div>
-          )}
-
-          {/* REFRESH TIP */}
-          <div className="absolute bottom-[30px] left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-yellow-500/10 text-yellow-300 text-xs">
-            Tip: If game gets stuck, just refresh
-          </div>
+          <WalletBalance balance={winningAmount / 100} />
         </TableContainer>
       </>
     );
@@ -568,7 +647,15 @@ export default function SevenCallsBoard() {
       <>
         <Table>
           <ScoreBoard />
-
+          <ExitRoomIcon
+            onExit={() => {
+              socket.emit("leave-room", {
+                roomId: room.roomId,
+                playerId,
+              });
+              router.push("/");
+            }}
+          />
           {/* CENTER POT */}
           <div className="absolute inset-0 flex items-center justify-center gap-6">
             {room.playedCards.map((pc, i) => (
@@ -624,6 +711,7 @@ export default function SevenCallsBoard() {
             );
           })}
           <UserTurnIndicator isTurn={room.turn === playerId} />
+          <WalletBalance balance={loading ? "…" : balance} />
         </Table>
 
         {/* ✅ REVEAL / PASS OVERLAY — OUTSIDE TABLE */}
@@ -662,7 +750,6 @@ export default function SevenCallsBoard() {
 
 
   /* ================= FINISHED ================= */
-/* ================= ENDED ================= */
   if (room.phase === "finished") {
     const team1Players = room.order.filter(
       pid => room.playersData[pid].team === 1
@@ -684,84 +771,161 @@ export default function SevenCallsBoard() {
       : "Draw";
 
     return (
-      <Center>
-        {playWinSound && <Confetti recycle={false} numberOfPieces={200} />}
+      <>
+        {/* 🌫 BACKGROUND DIM */}
+        <div className="fixed inset-0 z-10 bg-black/40 backdrop-blur-[8px]" />
 
-        <div className="flex flex-col items-center gap-6">
-          {/* 🏆 TEAM NUMBER BIG (LIKE CALLBREAK WINNER NAME) */}
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1.3 }}
-            transition={{ type: "spring", stiffness: 300, damping: 15 }}
+        {/* 🎴 REAL BOARD */}
+        <Table />
+        <WalletBalance
+          balance={loading ? "…" : balance}
+          centered
+        />
+        {/* 🎉 CONFETTI */}
+        {playWinSound && (
+          <Confetti recycle={false} numberOfPieces={180} />
+        )}
+
+        {/* 🏆 FINISHED UI (CENTER CONTENT ONLY) */}
+        <div className="fixed inset-0 z-20 flex items-center justify-center pointer-events-none">
+          {/* 🔥 SCALE ONLY CONTENT */}
+          <div
+            className="
+              pointer-events-auto
+              relative flex flex-col items-center gap-6
+              transition-transform duration-300
+              max-md:max-h-[500px] scale-[0.7]
+              md:scale-100
+            "
           >
-            <h1 className="text-6xl font-extrabold text-emerald-400">
-              🏆 {winnerTeam ? `TEAM ${winnerTeam}` : "DRAW"}
-            </h1>
-          </motion.div>
-
-          {/* PLAYER NAMES BELOW (SECONDARY) */}
-          {winnerTeam && (
+            {/* WINNER HEADER */}
             <motion.div
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15 }}
-              className="text-2xl font-bold text-emerald-200"
+              initial={{ scale: 0 }}
+              animate={{ scale: 1.15 }}
+              transition={{ type: "spring", stiffness: 260, damping: 18 }}
+              className="flex items-center gap-3"
             >
-              {winnerNames}
+              <Trophy className="w-12 h-12 text-emerald-400 drop-shadow-[0_0_20px_rgba(16,185,129,0.8)]" />
+              <h1 className="text-6xl font-extrabold tracking-wide text-emerald-400">
+                {winnerTeam ? `TEAM ${winnerTeam}` : "DRAW"}
+              </h1>
             </motion.div>
-          )}
 
-          {/* 💰 WINNING AMOUNT (SAME STYLE AS CALLBREAK) */}
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.25 }}
-            className="text-3xl font-bold text-yellow-300"
-          >
-            💰 Winning Amount: {winningAmount / 200} TK
-          </motion.div>
+            {/* WINNER NAMES */}
+            {winnerTeam && (
+              <motion.div
+                initial={{ opacity: 0, y: -18 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15 }}
+                className="text-2xl font-semibold text-emerald-200 tracking-wide"
+              >
+                {winnerNames}
+              </motion.div>
+            )}
 
-          {/* PLAYER VOTE BOXES (UNCHANGED) */}
-          <div className="grid grid-cols-2 gap-4 mt-4">
-            {room.order.map(pid => (
-              <PlayerVoteBox
-                key={pid}
-                name={room.playersData[pid].name}
-                color={getBoxColor(pid,rematchVotes)}
-              />
-            ))}
+            {/* WINNING AMOUNT */}
+            <motion.div
+              initial={{ opacity: 0, y: -18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 }}
+              className="flex items-center gap-2 text-3xl font-bold text-yellow-300"
+            >
+              <Coins className="w-7 h-7 text-yellow-300" />
+              <span>{winningAmount / 200} TK</span>
+            </motion.div>
+
+            {/* PLAYER VOTES */}
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              {room.order.map(pid => {
+                const isWinner =
+                  winnerTeam &&
+                  room.playersData[pid].team === winnerTeam;
+
+                return (
+                  <div key={pid} className="relative">
+                    {isWinner && (
+                      <motion.div
+                        className="absolute inset-0 rounded-xl pointer-events-none"
+                        animate={{
+                          boxShadow: [
+                            "0 0 10px rgba(16,185,129,0.35)",
+                            "0 0 28px rgba(16,185,129,0.85)",
+                            "0 0 10px rgba(16,185,129,0.35)",
+                          ],
+                        }}
+                        transition={{ repeat: Infinity, duration: 1.6 }}
+                      />
+                    )}
+
+                    <PlayerVoteBox
+                      name={room.playersData[pid].name}
+                      color={getBoxColor(pid, rematchVotes)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
           </div>
-
-          <motion.button
-            animate={{ scale: [1, 1.08, 1] }}
-            transition={{ repeat: Infinity, duration: 1.2 }}
-            onClick={() =>
-              socket.emit("vote-rematch-7call", {
-                roomId: room.roomId,
-                playerId,
-                vote: true,
-              })
-            }
-            className="mt-6 px-10 py-4 bg-emerald-500 hover:bg-emerald-400 rounded-2xl text-black text-xl font-bold shadow-[0_0_40px_rgba(16,185,129,0.9)]"
-          >
-            🔁 PLAY AGAIN
-          </motion.button>
-
-          <motion.button
-            onClick={() =>
-              socket.emit("vote-rematch-7call", {
-                roomId: room.roomId,
-                playerId,
-                vote: false,
-              })
-            }
-            className="mt-4 px-12 py-3 bg-red-600 hover:bg-red-500 text-white font-bold text-lg rounded-xl shadow-lg"
-          >
-            ❌ EXIT MATCH
-          </motion.button>
-
         </div>
-      </Center>
+
+        {/* ================= PLAY AGAIN (BOTTOM RIGHT) ================= */}
+        <motion.button
+          onClick={() =>
+            socket.emit("vote-rematch-7call", {
+              roomId: room.roomId,
+              playerId,
+              vote: true,
+            })
+          }
+          animate={{
+            scale: [1, 1.08, 1],
+            boxShadow: [
+              "0 0 0 rgba(16,185,129,0)",
+              "0 0 40px rgba(16,185,129,0.9)",
+              "0 0 0 rgba(16,185,129,0)",
+            ],
+          }}
+          transition={{ repeat: Infinity, duration: 1.2 }}
+          className="
+            fixed bottom-4 right-4 z-[999]
+            flex items-center gap-3
+            px-7 py-4
+            rounded-2xl
+            bg-emerald-500 hover:bg-emerald-400
+            text-black font-bold text-lg
+            shadow-none
+          "
+        >
+          <RotateCcw size={20} />
+          PLAY AGAIN
+        </motion.button>
+
+        {/* ================= EXIT (BOTTOM LEFT) ================= */}
+        <button
+          onClick={() => {
+            socket.emit("vote-rematch", {
+              roomId: room.roomId,
+              playerId,
+              vote: false,
+            });
+            router.push("/");
+          }}
+          className="
+            fixed bottom-4 left-4 z-[999]
+            flex items-center gap-3
+            px-7 py-4
+            rounded-2xl
+            bg-red-600 hover:bg-red-500
+            text-white font-bold text-lg
+            shadow-none
+            scale-[0.8]
+          "
+        >
+          <LogOut size={18} />
+          EXIT
+        </button>
+
+      </>
     );
   }
 
@@ -1152,5 +1316,59 @@ export function EnemyHand({ player, seat, isTurn }) {
   );
 }
 
+function WalletBalance({ balance, centered = false }) {
+  return (
+    <div
+      className={`
+        fixed z-[999]
+        flex items-center gap-2
+        px-3 py-2
+        rounded-xl
+        bg-black/40 backdrop-blur
+        text-white/80 text-xs
+        transition-all duration-300 ease-out
 
+        ${
+          centered
+            ? "bottom-[18px] left-1/2 -translate-x-1/2"
+            : "bottom-[14px] right-[14px]"
+        }
+      `}
+    >
+      <Wallet size={16} />
+      <span>{balance} tk</span>
+    </div>
+  );
+}
+
+
+function ExitRoomIcon({ onExit }) {
+  const { t } = useLang();
+
+  return (
+    <button
+      onClick={() => {
+        if (confirm(t.exitConfirm)) {
+          onExit();
+        }
+      }}
+      title={t.exitRoom}
+      className="
+        fixed z-50
+        top-[74px] right-[12px]   /* ⬅️ JUST BELOW WINNING AMOUNT */
+        h-9 w-9
+        flex items-center justify-center
+        rounded-full
+        bg-black/40
+        hover:bg-red-500/80
+        border border-white/15
+        text-white/80
+        hover:text-white
+        transition
+      "
+    >
+      <LogOut size={16} />
+    </button>
+  );
+}
 

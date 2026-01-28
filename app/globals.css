@@ -1,3 +1,20 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+  overflow-x: hidden; /* prevent horizontal scroll */
+  overflow-y: auto;   /* allow vertical scroll */
+  -webkit-overflow-scrolling: touch; /* smooth scroll on iOS */
+}
+
+.app-root {
+  min-height: 100dvh; /* full viewport height but allows growth */
+  width: 100vw;
+  overflow-x: hidden;  /* prevent horizontal scroll */
+  overflow-y: auto;    /* allow vertical scroll */
+}

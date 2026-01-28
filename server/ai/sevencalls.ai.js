@@ -5,6 +5,33 @@ import {
   revealPower
 } from "../games/sevenCalls.js";
 
+function getAIRole(room, pid) {
+  const p = room.playersData[pid];
+  if (!p?.isAI) return "HUMAN";
+
+  const teammate = Object.values(room.playersData)
+    .find(x => x.team === p.team && x.pid !== pid);
+
+  if (teammate && !teammate.isAI) return "HUMAN_TEAM_AI";
+  return "ENEMY_AI";
+}
+
+function applyHandicap(value, role) {
+  if (role === "HUMAN_TEAM_AI") {
+    // 20–35% decision degradation
+    return value * (0.65 + Math.random() * 0.15);
+  }
+  return value; // enemy AI untouched
+}
+
+function aiMistakeChance(role, base) {
+  if (role === "HUMAN_TEAM_AI") {
+    return base + Math.random() * 0.15; // 15–30%
+  }
+  return base * 0.3; // enemy AI almost perfect
+}
+
+
 /* ======================================================
    CONFIG
 ====================================================== */
@@ -16,9 +43,34 @@ function thinkDelay() {
   return THINK_TIME_MIN + Math.random() * (THINK_TIME_MAX - THINK_TIME_MIN);
 }
 
+const BID_OPTIONS = [5, 7, 8];
+
+function cardRank(v) {
+  return ["2","3","4","5","6","7","8","9","10","J","Q","K","A"].indexOf(v);
+}
+
+function isBig(c) {
+  return ["A","K","Q","J","10"].includes(c.value);
+}
+
+function suitCount(hand) {
+  const m = {};
+  for (const c of hand) m[c.suit] = (m[c.suit] || 0) + 1;
+  return m;
+}
+
+
 function rank(v) {
   const order = ["2","3","4","5","6","7","8","9","10","J","Q","K","A"];
   return order.indexOf(v);
+}
+
+function ensureAIMemory(room) {
+  room._aiMemory ||= {
+    played: [],
+    suitsGone: { hearts:0, diamonds:0, clubs:0, spades:0 },
+    trumpsPlayed: 0
+  };
 }
 
 /* ======================================================
@@ -72,32 +124,116 @@ function sevenCallsAIBid(io, room, pid) {
   const p = room.playersData[pid];
   if (!p || p.bid !== null || room.turn !== pid) return;
 
-  const suitMap = {};
-  for (const c of p.hand) {
-    suitMap[c.suit] ??= [];
-    suitMap[c.suit].push(c);
+  const role = getAIRole(room, pid);
+  const cards = p.fullHand ?? p.hand;
+
+  /* ===============================
+     HAND EVALUATION (IMPROVED)
+  =============================== */
+
+  const suitStats = {};
+  for (const c of cards) {
+    suitStats[c.suit] ??= {
+      count: 0,
+      big: 0,   // A,K
+      mid: 0    // Q,J
+    };
+
+    suitStats[c.suit].count++;
+
+    if (["A", "K"].includes(c.value)) suitStats[c.suit].big++;
+    else if (["Q", "J"].includes(c.value)) suitStats[c.suit].mid++;
   }
 
-  let bid = 5;
-  for (const suit in suitMap) {
-    const cards = suitMap[suit];
-    const big = cards.filter(c => ["A","K","Q"].includes(c.value));
-    if (cards.length >= 4 || big.length >= 3) {
-      bid = 7;
-      break;
+  let raw = 0;
+  let strongSuitFound = false;
+
+  for (const s in suitStats) {
+    const { count, big, mid } = suitStats[s];
+
+    // 🔥 MAIN TRIGGERS YOU ASKED FOR
+    if (big >= 2 && count >= 2) {
+      raw += 3.5;               // 2 big same suit → push 7
+      strongSuitFound = true;
     }
+
+    if (count >= 3) {
+      raw += 2.8;               // 3 same suit → push 7
+      strongSuitFound = true;
+    }
+
+    // normal scaling
+    if (count === 4) raw += 1.5;
+    if (count >= 5) raw += 2.2;
+
+    if (big === 1 && mid >= 1) raw += 0.8;
+    if (big >= 1 && count >= 3) raw += 1.2;
   }
+
+  /* ===============================
+     TEAM ASSUMPTION
+  =============================== */
+
+  const teammate = Object.values(room.playersData)
+    .find(x => x.team === p.team && x.pid !== pid);
+
+  if (teammate) raw += 0.4;
+
+  /* ===============================
+     ROLE ADJUSTMENT
+  =============================== */
+
+  if (role === "HUMAN_TEAM_AI") {
+    // overconfident but weak cards overall (bias already applied)
+    raw += 0.7;
+
+    if (Math.random() < 0.25) raw -= 0.6; // doubt
+  }
+
+  if (role === "ENEMY_AI") {
+    // calmer, slightly better judgement
+    if (Math.random() < 0.2) raw += 0.5;
+  }
+
+  raw = applyHandicap(raw, role);
+
+  /* ===============================
+     BID DECISION (AGGRESSIVE 7)
+  =============================== */
+
+  let bid = 5;
+
+  // 🔥 FORCE TRY FOR 7 IF CONDITIONS MET
+  if (strongSuitFound) {
+    if (Math.random() < 0.7) bid = 7; // MOST of the time
+  }
+
+  // normal ladder
+  if (raw >= 6.5) bid = 8;
+  else if (raw >= 3.6 && Math.random() < 0.75) bid = 7;
+
+  /* ===============================
+     BELIEVABLE ERRORS
+  =============================== */
+
+  // teammate AI sometimes overbids
+  if (role === "HUMAN_TEAM_AI" && bid === 7 && Math.random() < 0.15) {
+    bid = 8;
+  }
+
+  // enemy AI rarely drops
+  if (role === "ENEMY_AI" && Math.random() < 0.05) {
+    bid = 5;
+  }
+
+  bid = Math.max(5, Math.min(8, bid));
 
   placeBid(room, pid, bid);
   io.to(room.roomId).emit("update-room", room);
-
-  // ✅ Trigger next AI if needed
-  const nextPid = room.turn;
-  const nextPlayer = room.playersData[nextPid];
-  if (nextPlayer?.isAI && !nextPlayer.connected) {
-    setTimeout(() => sevenCallsAIMove(io, room, nextPid), 200);
-  }
+  chainNextAI(io, room);
 }
+
+
 
 /* ======================================================
    POWER SELECT AI
@@ -106,33 +242,48 @@ function sevenCallsAIBid(io, room, pid) {
 function sevenCallsAISetPower(io, room, pid) {
   const p = room.playersData[pid];
   if (!p || room.highestBidder !== pid || room.turn !== pid) return;
-
-  // ✅ if player is online, AI does nothing
   if (p.connected) return;
+  const role = getAIRole(room, pid);
+  const suits = suitCount(p.hand);
 
-  // AI chooses power card as before
-  const suitScore = {};
-  for (const c of p.hand) {
-    suitScore[c.suit] ??= 0;
-    if (c.value === "A") suitScore[c.suit] += 3;
-    if (c.value === "K") suitScore[c.suit] += 2;
-    if (c.value === "Q") suitScore[c.suit] += 1;
-    if (c.value === "J") suitScore[c.suit] += 0.5;
+  let bestSuit = null;
+  let bestScore = -1;
+
+  for (const s in suits) {
+    const cards = p.hand.filter(c => c.suit === s);
+    let score = suits[s];
+
+    if (cards.some(c => c.value === "A")) score += 3;
+    if (cards.some(c => c.value === "K")) score += 2;
+
+    // Trap preference: long but not obvious
+    if (suits[s] === 4) score += 2;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestSuit = s;
+      if (role === "HUMAN_TEAM_AI" && Math.random() < 0.25) {
+        // prefers slightly shorter suit (still reasonable)
+        const alt = Object.entries(suits)
+          .filter(([s]) => s !== bestSuit)
+          .sort((a,b)=>b[1]-a[1])[0]?.[0];
+
+        if (alt) bestSuit = alt;
+      }
+    }
   }
 
-  const bestSuit = Object.entries(suitScore)
-    .sort((a, b) => b[1] - a[1])[0]?.[0];
-  if (!bestSuit) return;
+  const powerCard =
+    p.hand
+      .filter(c => c.suit === bestSuit)
+      .sort((a,b)=>cardRank(a.value)-cardRank(b.value))[0];
 
-  const card = p.hand.find(c => c.suit === bestSuit);
-  if (!card) return;
+  if (!powerCard) return;
 
-  setPowerCard(room, pid, card);
+  setPowerCard(room, pid, powerCard);
   io.to(room.roomId).emit("update-room", room);
-
   setTimeout(() => chainNextAI(io, room), 200);
 }
-
 
 
 /* ======================================================
@@ -242,92 +393,95 @@ function rememberPlay(room, pid, card) {
 }
 
 function chooseAggressiveCard(room, pid, legal) {
+  const role = getAIRole(room, pid);
+
+  // hesitation: miss perfect play
+  if (role === "HUMAN_TEAM_AI" && Math.random() < 0.18) {
+    return legal.sort((a,b)=>cardRank(a.value)-cardRank(b.value))[0];
+  }
+
   const p = room.playersData[pid];
   const trick = room.playedCards;
   const leadSuit = trick[0]?.card?.suit;
-  const powerSuit =
-    room.hiddenPower?.suit ??
-    room.hiddenPower?.card?.suit ??
-    room.powerSuit;
+  const powerSuit = room.powerSuit || room.hiddenPower?.card?.suit;
 
-  /* ===============================
-     🧨 POWER CUT (DOMINATION)
-  =============================== */
-
+  // 🧨 CUT WHEN HUMANS GET GREEDY
   if (
-    powerSuit &&
     leadSuit &&
-    leadSuit !== powerSuit &&
-    legal.some(c => c.suit === powerSuit)
+    powerSuit &&
+    legal.some(c => c.suit === powerSuit) &&
+    trick.some(t => !room.playersData[t.pid].isAI)
   ) {
-    const highest = trick
-      .filter(t => t.card.suit === leadSuit)
-      .sort((a, b) => rank(b.card.value) - rank(a.card.value))[0];
-
-    // Only cut if trick is valuable
-    if (!highest || rank(highest.card.value) >= rank("Q")) {
-      return legal
-        .filter(c => c.suit === powerSuit)
-        .sort((a, b) => rank(a.value) - rank(b.value))[0];
-    }
+    return legal
+      .filter(c => c.suit === powerSuit)
+      .sort((a,b)=>cardRank(a.value)-cardRank(b.value))[0];
   }
 
-  /* ===============================
-     🎣 BAIT LOGIC (HUMAN TRAP)
-  =============================== */
-  const memory = p.memory;
-
-  // Lead suit opponents are void in
-  if (!leadSuit && memory) {
-    for (const [oppPid, suits] of Object.entries(memory.voidSuits)) {
-      const suit = [...suits][0];
-      const killer = p.hand
-        .filter(c => c.suit === suit)
-        .sort((a, b) => rank(b.value) - rank(a.value))[0];
-      if (killer) return killer;
-    }
-  }
-
-
+  // 🎣 BAIT: lead low in strong suit
   if (!leadSuit) {
-    // Lead LOW in strong suit to bait A/K
-    const suitCounts = {};
-    for (const c of p.hand) suitCounts[c.suit] ??= 0, suitCounts[c.suit]++;
+    const suits = suitCount(p.hand);
+    const baitSuit = Object.entries(suits)
+      .sort((a,b)=>b[1]-a[1])[0][0];
 
-    const baitSuit = Object.entries(suitCounts)
-      .sort((a, b) => b[1] - a[1])[0]?.[0];
-
-    const baitCards = p.hand
+    const bait = p.hand
       .filter(c => c.suit === baitSuit)
-      .sort((a, b) => rank(a.value) - rank(b.value));
+      .sort((a,b)=>cardRank(a.value)-cardRank(b.value));
 
-    if (baitCards.length > 1) return baitCards[0];
+    if (bait.length > 1) {
+      if (role === "HUMAN_TEAM_AI" && Math.random() < 0.3) {
+        return bait[1]; // plays slightly higher bait
+      }
+      return bait[0];
+    }
+
   }
 
-  /* ===============================
-     ⚔️ TRICK WINNING LOGIC
-  =============================== */
+  // 🧠 PROTECT TEAMMATE
+  const teammate = Object.values(room.playersData)
+    .find(x => x.team === p.team && x.pid !== pid);
 
+  if (teammate) {
+    const tp = trick.find(t => t.pid === teammate.pid);
+    if (tp) {
+      const winning =
+        trick.every(t =>
+          t.pid === teammate.pid ||
+          cardRank(tp.card.value) > cardRank(t.card.value)
+        );
+        if (winning) {
+          if (role === "HUMAN_TEAM_AI" && Math.random() < 0.25) {
+            // misread trick
+            return legal.sort((a,b)=>cardRank(a.value)-cardRank(b.value))[0];
+          }
+          return legal.sort((a,b)=>cardRank(a.value)-cardRank(b.value))[0];
+        }
+    }
+  }
+
+  // ⚔️ WIN WITH MINIMUM FORCE
   if (leadSuit) {
     const highest = trick
       .filter(t => t.card.suit === leadSuit)
-      .sort((a, b) => rank(b.card.value) - rank(a.card.value))[0];
+      .sort((a,b)=>cardRank(b.card.value)-cardRank(a.card.value))[0];
 
-    const winning = legal
+    const win = legal
       .filter(c => c.suit === leadSuit)
-      .filter(c => rank(c.value) > rank(highest.card.value))
-      .sort((a, b) => rank(a.value) - rank(b.value));
+      .filter(c => cardRank(c.value) > cardRank(highest.card.value))
+      .sort((a,b)=>cardRank(a.value)-cardRank(b.value));
 
-    if (winning.length) {
-      // Win with minimum force
-      return winning[0];
+    if (win.length) return win[0];
+      }
+    if (
+      role === "HUMAN_TEAM_AI" &&
+      room.trick >= 7 &&
+      Math.random() < 0.35
+    ) {
+      // loses endgame by timing
+      return legal.sort((a,b)=>cardRank(a.value)-cardRank(b.value))[0];
     }
-  }
 
-  /* ===============================
-     🗑️ DUMP TRASH (LOSS CONTROL)
-  =============================== */
 
-  return legal.sort((a, b) => rank(a.value) - rank(b.value))[0];
+  // 🗑️ DUMP TRASH
+  return legal.sort((a,b)=>cardRank(a.value)-cardRank(b.value))[0];
 }
 

@@ -69,7 +69,7 @@ export async function POST(req) {
       }
 
       // 💰 balance check for paid rooms
-      if (entryFee > 0 && user.balance < entryFee) {
+      if (!isInternal && entryFee > 0 && user.balance < entryFee) {
         return Response.json(
           { error: "INSUFFICIENT_BALANCE" },
           { status: 400 }
@@ -81,14 +81,14 @@ export async function POST(req) {
           gameType: body.gameType,
           entryFee,
           matchType: body.matchType,
-          targetScore,          // ✅ STORED IN DB
+          targetScore,
           maxPlayers,
-          hostId: user.id,
+          host: { connect: { id: user.id } },  // ✅ CORRECT
           status: "WAITING",
+          isInstant: !!body.instant,
           isPublic: true,
         },
       });
-
 
       return Response.json({ roomId: room.id });
     }

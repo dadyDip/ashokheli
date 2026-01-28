@@ -12,6 +12,11 @@ import { triggerAITurn } from "./ai/ai.controller.js";
 import { getAIUserId } from './aiUser.js';
 import { revealPower } from "./games/sevenCalls.js";
 import { assignSevenCallsTeams } from "./games/sevenCalls.js";
+import {
+  startFlash,
+  flashAction,
+  flashDisconnect
+} from "./games/flash.js";
 
 
 const socketToPlayer = new Map();
@@ -80,6 +85,8 @@ export function setupCardGame(io) {
               room.entryFee = 0;
               room.maxPlayers = 4;
               room.phase = "waiting";
+              room.matchMode = "DEMO";
+
 
               cardRooms[roomId] = room;
 
@@ -100,6 +107,7 @@ export function setupCardGame(io) {
                   maxPlayers: true,
                   targetScore: true,
                   matchType: true,
+                  isInstant: true,
                 },
               });
 
@@ -109,9 +117,14 @@ export function setupCardGame(io) {
               }
 
               room = createRoom(roomId, dbRoom.gameType);
+              room.matchMode = dbRoom.isInstant ? "INSTANT" : "MULTI";
               room.gameType = dbRoom.gameType;
               room.mode = dbRoom.gameType;
               room.hasAI = false;
+              room.fairness = {
+                mode: "NORMAL",       // NORMAL | SOFT_BIAS
+                userWinTarget: 0.25,  // 25% target winrate
+              };
               room.matchType = dbRoom.matchType || "target";
               room.entryFee = dbRoom.entryFee;
               room.maxPlayers = dbRoom.maxPlayers ?? 4;
@@ -137,6 +150,8 @@ export function setupCardGame(io) {
               existingPlayer.socketId = socket.id;
               existingPlayer.connected = true;
               existingPlayer.isAI = false;
+              existingPlayer.aiControlled = false;
+              existingPlayer.connected = true;
 
               socket.join(roomId);
 
@@ -210,9 +225,11 @@ export function setupCardGame(io) {
             players: Object.keys(room.playersData).length,
           });
           // 🤖 AUTO-FILL AI FOR REAL MATCHES
-          if (!room.isDemo) {
+          if (room.matchMode === "INSTANT") {
             const aiUserId = await getAIUserId(); // server-owned user
-
+            if (room.matchMode === "INSTANT" && room.entryFee > 0) {
+              room.fairness.mode = "SOFT_BIAS";
+            }
             while (room.order.length < room.maxPlayers) {
               const aiPid = `AI-${room.order.length}-${room.roomId}`;
 
@@ -236,14 +253,41 @@ export function setupCardGame(io) {
           }
 
           /* ================= START MATCH IF READY ================= */
+          const totalPlayers = Object.keys(room.playersData).length;
+          const humanPlayers = Object.values(room.playersData).filter(p => !p.isAI).length;
+
+          let readyToStart = false;
+
+          // Existing logic (keep intact)
           if (
-            Object.keys(room.playersData).length === room.maxPlayers &&
-            room.phase === "waiting"
+            room.phase === "waiting" &&
+            (
+              (room.matchMode === "INSTANT" && totalPlayers === room.maxPlayers) ||
+              (room.matchMode === "MULTI" && humanPlayers === room.maxPlayers)
+            )
           ) {
-            console.log("🎯 ALL PLAYERS JOINED — STARTING MATCH");
+            readyToStart = true;
+          }
+
+          // 🔹 Flash-specific logic (non-breaking)
+          if (
+            room.phase === "waiting" &&
+            room.gameType === "flash" &&
+            humanPlayers >= 2 // min 2 humans to start
+          ) {
+            readyToStart = true;
+          }
+
+          if (readyToStart) {
+            console.log("🎯 MATCH READY — STARTING", {
+              mode: room.matchMode,
+              totalPlayers,
+              humanPlayers,
+            });
 
             room.phase = "starting";
 
+            // 💰 CREATE MATCH + LOCK FUNDS (REAL MATCHES ONLY)
             if (!room.isDemo) {
               const match = await prisma.match.create({
                 data: {
@@ -259,21 +303,21 @@ export function setupCardGame(io) {
                 },
               });
 
-            room.matchId = match.id;
-            if (room.hasAI) {
-              await lockMatchFundsWithAI(match.id);
-            } else {
-              await lockMatchFunds(match.id);
+              room.matchId = match.id;
+
+              if (room.hasAI) {
+                await lockMatchFundsWithAI(match.id);
+              } else {
+                await lockMatchFunds(match.id);
+              }
+
+              io.to(room.roomId).emit("funds-locked");
             }
 
-
-
-            io.to(room.roomId).emit("funds-locked");
-          }
-
+            // 🎮 START GAME
             startGame(room);
             emit(io, room);
-            maybeTriggerAI(io, room); // phase → bidding
+            maybeTriggerAI(io, room); // bidding / play
           }
 
           emit(io, room);
@@ -283,6 +327,21 @@ export function setupCardGame(io) {
         }
       }
     );
+
+    socket.on("flash-action", ({ roomId, action, amount }) => {
+      const room = cardRooms[roomId];
+      if (!room || room.gameType !== "flash") return;
+
+      const info = socketToPlayer.get(socket.id);
+      if (!info) return;
+
+      const pid = info.playerId;
+      if (room.turn !== pid) return;
+
+      flashAction(room, pid, action, amount);
+      emit(io, room);
+      maybeTriggerAI(io, room);
+    });
 
     /* ===================== PLACE BID ===================== */
     socket.on("place-bid", ({ roomId, playerId, bid }) => {
@@ -392,20 +451,22 @@ export function setupCardGame(io) {
       maybeTriggerAI(io, room);
     });
 
-    socket.on("vote-rematch", ({ roomId, playerId, vote }) => {
+    socket.on("vote-rematch", async ({ roomId, playerId, vote }) => {
       const room = cardRooms[roomId];
       if (!room || room.phase !== "ended") return;
+      if (!room.playersData[playerId]) return;
 
       if (!room.rematchVotes) room.rematchVotes = {};
       room.rematchVotes[playerId] = vote;
 
-      const yesVotes = Object.values(room.rematchVotes).filter(v => v).length;
+      const votes = Object.values(room.rematchVotes);
+      const yesVotes = votes.filter(v => v === true).length;
       const totalPlayers = room.order.length;
 
-      // 🔥 DEMO / AI MATCH → auto-restart if real player voted yes
       const realPlayers = Object.values(room.playersData).filter(p => !p.isAI).length;
 
-      if (vote && realPlayers === 1) {
+      // 🔹 DEMO / single real player → instant rematch
+      if (vote === true && realPlayers === 1) {
         room.round = 1;
         room.roundHistory = [];
         room.rematchVotes = {};
@@ -417,11 +478,19 @@ export function setupCardGame(io) {
           p.bid = null;
         }
 
+        resetCallBreakForRematch(room);
+
+        // ✅ NEW MATCH FOR EVERY REAL REMATCH
+        await createNewMatchForRematch(room, io);
+
         startGame(room);
+        emit(io, room);
+        maybeTriggerAI(io, room);
+        return;
       }
 
-      // 🔥 Normal 4-player match
-      else if (yesVotes === totalPlayers) {
+      // 🔹 NORMAL MATCH → everyone must vote YES
+      if (votes.length === totalPlayers && yesVotes === totalPlayers) {
         room.round = 1;
         room.roundHistory = [];
         room.rematchVotes = {};
@@ -433,13 +502,22 @@ export function setupCardGame(io) {
           p.bid = null;
         }
 
+        resetCallBreakForRematch(room);
+
+        // ✅ ALWAYS CREATE NEW MATCH (INSTANT / MULTI / AI / REAL)
+        await createNewMatchForRematch(room, io);
+
         startGame(room);
+        emit(io, room);
+        maybeTriggerAI(io, room);
+        return;
       }
 
       emit(io, room);
     });
 
-    socket.on("vote-rematch-7call", ({ roomId, playerId, vote }) => {
+
+    socket.on("vote-rematch-7call", async ({ roomId, playerId, vote }) => {
       const room = cardRooms[roomId];
 
       // ✅ Seven Calls uses "finished"
@@ -449,41 +527,51 @@ export function setupCardGame(io) {
       if (!room.rematchVotes) room.rematchVotes = {};
       room.rematchVotes[playerId] = vote;
 
-      // 🔥 emit votes so UI updates
+      // 🔥 update UI vote state
       io.to(roomId).emit("update-rematch-votes", room.rematchVotes);
 
       const totalPlayers = room.order.length;
       const votes = Object.values(room.rematchVotes);
-      const yesVotes = votes.filter(v => v).length;
+      const yesVotes = votes.filter(v => v === true).length;
 
-      // ✅ DEMO / AI MATCH (same behavior as Call Break)
       const realPlayers = Object.values(room.playersData).filter(p => !p.isAI).length;
+
+      // 🔹 DEMO / AI match → instant rematch
       if (vote === true && realPlayers === 1) {
+        room.rematchVotes = {};
+
         resetSevenCallsForRematch(room);
+
+        // ✅ NEW MATCH ID
+        await createNewMatchForRematch(room, io);
+
         startSevenCalls(room);
         emit(io, room);
         maybeTriggerAI(io, room);
-
         return;
       }
 
-      // ✅ NORMAL MATCH → ALL must vote YES
+      // 🔹 NORMAL MATCH → all must vote YES
       if (votes.length === totalPlayers && yesVotes === totalPlayers) {
+        room.rematchVotes = {};
+
         resetSevenCallsForRematch(room);
+
+        // ✅ NEW MATCH ID
+        await createNewMatchForRematch(room, io);
+
         startSevenCalls(room);
         emit(io, room);
         maybeTriggerAI(io, room);
-
         return;
       }
 
-      // ❌ Everyone voted NO
+      // ❌ everyone voted NO
       if (votes.length === totalPlayers && yesVotes === 0) {
         room.rematchVotes = {};
         io.to(roomId).emit("rematch-cancelled");
       }
     });
-
 
 
     /* ===================== DISCONNECT ===================== */
@@ -499,12 +587,14 @@ export function setupCardGame(io) {
       const { roomId, playerId } = info;
       const room = cardRooms[roomId];
       if (!room) return;
-
+      if (!room || room.gameType !== "flash") return;
       const player = room.playersData[playerId];
       if (!player) return;
 
       player.connected = false;
-      player.isAI = true; 
+      player.isAI = true;          // 🔥 REQUIRED
+      player.aiControlled = true;  // optional, fine to keep
+
       console.log("🤖 DISCONNECTED", playerId);
 
       emit(io, room);
@@ -546,6 +636,15 @@ export function setupCardGame(io) {
 /* ======================================================
    HELPERS
 ====================================================== */
+function ensureWinControl(room) {
+  if (!room._winControl) {
+    room._winControl = {
+      games: 0,
+      userWins: 0,
+    };
+  }
+}
+
 export async function onGameEnded(room) {
   if (!room.matchId) throw new Error("No matchId");
 
@@ -565,6 +664,17 @@ export async function onGameEnded(room) {
     winnerUserId,
     isAI: winnerPlayer.isAI,
   });
+  if (room.fairness?.mode === "SOFT_BIAS") {
+    ensureWinControl(room);
+
+    room._winControl.games++;
+
+    const winner = room.playersData[room.winner];
+    if (winner && !winner.isAI) {
+      room._winControl.userWins++;
+    }
+  }
+
 
   // ================= SEVEN / TEAM =================
   if (room.gameType === "seven") {
@@ -574,7 +684,7 @@ export async function onGameEnded(room) {
 
   // ================= CALLBREAK =================
   if (winnerPlayer.isAI) {
-    await settleMatchWithAI(room.matchId, winnerUserId);
+    await settleMatchWithAI(room.matchId, winnerPlayer);
   } else {
     await settleMatch(room.matchId, winnerUserId); // OLD FLOW (works)
   }
@@ -609,10 +719,21 @@ function getRoom(roomId) {
   return cardRooms[roomId] || null;
 }
 
-function emit(io, room) {
+export function emit(io, room) {
   room.actionId++;
   room.serverTime = Date.now();
-  io.to(room.roomId).emit("update-room", room);
+
+  for (const [pid, p] of Object.entries(room.playersData)) {
+    if (!p.socketId) continue;
+
+    const safeRoom = serializeRoomForPlayer(room, pid);
+    io.to(p.socketId).emit("update-room", safeRoom);
+  }
+}
+
+function advanceDealer(room) {
+  room.dealerIndex =
+    (room.dealerIndex + 1) % room.order.length;
 }
 
 function maybeTriggerAI(io, room) {
@@ -684,6 +805,26 @@ function createPlayer(id, socketId, name) {
   };
 }
 
+function serializeRoomForPlayer(room, viewerPid) {
+  const clone = structuredClone(room);
+
+  for (const [pid, p] of Object.entries(clone.playersData)) {
+    // Hide opponents' cards
+    if (pid !== viewerPid) {
+      p.hand = p.hand.map(() => ({ hidden: true }));
+      continue;
+    }
+
+    // Only limit to 5 cards for Seven Calls
+    if (room.gameType === "seven" && (clone.phase === "bidding" || clone.phase === "power-select")) {
+      p.hand = p.hand.slice(0, 5);
+    }
+  }
+
+  return clone;
+}
+
+
 function addPlayer(room, playerId, userId, socketId, name) {
   room.playersData[playerId] = {
     playerId,
@@ -700,15 +841,26 @@ function addPlayer(room, playerId, userId, socketId, name) {
   room.order.push(playerId);
 }
 
-function startGame(room) {
-  if (room.gameType === "seven") {
-    // 🧠 FINALIZE ROOM BEFORE GAME START
-    assignSevenCallsTeams(room);
+export function startGame(room) {
+  if (!room || room.phase === "playing") return;
 
+  switch (room.gameType) {
+    case "seven":
+      // 🧠 FINALIZE ROOM BEFORE GAME START
+      assignSevenCallsTeams(room);
+      startSevenCalls(room);
+      break;
 
-    startSevenCalls(room);
-  } else {
-    CallBreak.startCallBreak(room);
+    case "callbreak":
+      CallBreak.startCallBreak(room);
+      break;
+
+    case "flash":
+      startFlash(room);
+      break;
+
+    default:
+      console.error("❌ Unknown gameType:", room.gameType);
   }
 }
 
@@ -770,26 +922,43 @@ function resetSevenCallsForRematch(room) {
     p.passedReveal = false;
   }
 
-  // 🔥 VERY IMPORTANT
+  // ✅ ONLY CHANGE FOR INSTANT MATCH
+  if (room.matchMode === "INSTANT") {
+    advanceDealer(room);   // 🔥 THIS IS THE KEY
+  }
+
+  // teams stay same, order stays same
   assignSevenCallsTeams(room);
 }
 
-// async function resolveMatch(room) {
-//   if (!room.matchId) return;
 
-//   await fetch(`${process.env.BASE_URL}/api/match/resolve`, {
-//     method: "POST",
-//     headers: {
-//       "Content-Type": "application/json",
-//       Authorization: `Bearer ${process.env.INTERNAL_ADMIN_TOKEN}`,
-//     },
-//     body: JSON.stringify({
-//       matchId: room.matchId,
-//       gameType: room.mode === "seven" ? "SEVEN" : "CALLBREAK",
-//       winners: room.winners,
-//     }),
-//   });
-// }
+function resetCallBreakForRematch(room) {
+  room.phase = "waiting";
+  room.round = 1;
+  room.turn = null;
+
+  room.playedCards = [];
+  room.bids = {};
+  room.trumpSuit = null;
+  room.trumpCard = null;
+  room.rematchVotes = {};
+  room.roundHistory = [];
+
+  // 🔥 PLAYER RESET
+  for (const pid of room.order) {
+    const p = room.playersData[pid];
+    p.hand = [];
+    p.bid = null;
+    p.tricks = 0;
+    p.score = 0;
+  }
+
+  // ✅ ONLY FOR INSTANT MATCHES
+  if (room.matchMode === "INSTANT") {
+    advanceDealer(room);   // 🔥 rotate dealer
+  }
+}
+
 async function getUserBalance(userId) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -800,6 +969,40 @@ async function getUserBalance(userId) {
 }
 
 
-export {
-  startGame,
-};
+async function createNewMatchForRematch(room, io) {
+  if (room.isDemo) return;
+
+  try {
+    const match = await prisma.match.create({
+      data: {
+        gameType: room.gameType,
+        stake: room.entryFee,
+        status: "WAITING",
+        roomId: room.roomId,
+        players: {
+          create: Object.values(room.playersData)
+            .filter(p => !p.isAI)
+            .map(p => ({ userId: p.userId })),
+        },
+      },
+    });
+
+    room.matchId = match.id;
+
+    if (room.hasAI) {
+      await lockMatchFundsWithAI(match.id);
+    } else {
+      await lockMatchFunds(match.id);
+    }
+
+    io.to(room.roomId).emit("funds-locked");
+
+    console.log("🔁 NEW MATCH CREATED FOR REMATCH", {
+      matchId: match.id,
+      roomId: room.roomId,
+    });
+  } catch (err) {
+    console.error("🔥 Failed to create rematch match:", err);
+  }
+}
+

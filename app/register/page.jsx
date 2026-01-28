@@ -2,16 +2,23 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/AuthProvider";
+import { useLang } from "@/app/i18n/useLang";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { login } = useAuth();
+  const { t, lang } = useLang();
+  
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
-    email: "",
     phone: "",
     password: "",
+    promoCode: "",
   });
 
   const normalizePhone = (phone) => {
@@ -26,20 +33,20 @@ export default function RegisterPage() {
   };
 
   const submit = async () => {
-    const { firstName, lastName, email, phone, password } = form;
+    const { firstName, lastName, phone, password } = form;
 
-    if (!firstName || !lastName || !email || !phone || !password) {
-      alert("All fields are required");
+    if (!firstName || !lastName || !phone || !password) {
+      alert(t.allFieldsRequired);
       return;
     }
 
     if (!isValidBDPhone(phone)) {
-      alert("Invalid phone number (use 01XXXXXXXXX or 8801XXXXXXXX)");
+      alert(t.invalidPhone);
       return;
     }
 
     if (password.length < 6) {
-      alert("Password must be at least 6 characters");
+      alert(t.passwordTooShort);
       return;
     }
 
@@ -66,109 +73,146 @@ export default function RegisterPage() {
         return;
       }
 
-      alert("Account created successfully. 1000৳ demo balance added.");
-      router.replace("/login");
+      // Auto login after registration
+      if (data.success) {
+        const loginRes = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            phone: normalizePhone(phone), 
+            password 
+          }),
+        });
+
+        const loginData = await loginRes.json();
+        if (loginRes.ok) {
+          login(loginData.token, loginData.user);
+          router.push("/dashboard");
+        } else {
+          router.push("/login");
+        }
+      }
     } catch (err) {
       setLoading(false);
-      alert("Server error. Please try again.");
+      alert(t.serverError);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-950 via-emerald-950 to-teal-900 text-white px-4">
-      <div className="w-full max-w-md rounded-2xl bg-gray-900/60 backdrop-blur border border-emerald-500/20 p-6 space-y-5">
+    <div className="min-h-screen flex items-center justify-center bg-white text-gray-900 px-4">
+      <div className="w-full max-w-md rounded-2xl bg-white border border-gray-300 shadow-xl p-6 space-y-5">
 
         {/* HEADER */}
-        <div className="text-center space-y-1">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">
-            Create Your Account
+        <div className="text-center space-y-2">
+          <h1 className="text-2xl font-bold text-gray-900">
+            {t.createAccount}
           </h1>
-          <p className="text-sm text-white/60">
-            Join Bangladesh’s next-gen skill gaming platform
+          <p className="text-sm text-gray-600">
+            {t.joinPlatform}
           </p>
         </div>
 
         {/* FORM */}
         <div className="grid grid-cols-2 gap-3">
-          <input
-            placeholder="First Name"
-            value={form.firstName}
-            onChange={(e) =>
-              setForm({ ...form, firstName: e.target.value })
-            }
-            className="p-3 rounded bg-gray-800 border border-white/10 focus:outline-none focus:border-emerald-500"
-          />
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-gray-700">
+              {t.firstName}
+            </label>
+            <input
+              placeholder={lang === 'bn' ? "আপনার নাম" : "Your name"}
+              value={form.firstName}
+              onChange={(e) =>
+                setForm({ ...form, firstName: e.target.value })
+              }
+              className="w-full p-3 rounded-lg bg-gray-50 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+            />
+          </div>
 
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-gray-700">
+              {t.lastName}
+            </label>
+            <input
+              placeholder={lang === 'bn' ? "আপনার উপনাম" : "Your last name"}
+              value={form.lastName}
+              onChange={(e) =>
+                setForm({ ...form, lastName: e.target.value })
+              }
+              className="w-full p-3 rounded-lg bg-gray-50 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">
+            {t.phoneNumber}
+          </label>
           <input
-            placeholder="Last Name"
-            value={form.lastName}
+            placeholder={t.phonePlaceholder}
+            value={form.phone}
             onChange={(e) =>
-              setForm({ ...form, lastName: e.target.value })
+              setForm({ ...form, phone: e.target.value })
             }
-            className="p-3 rounded bg-gray-800 border border-white/10 focus:outline-none focus:border-emerald-500"
+            className="w-full p-3 rounded-lg bg-gray-50 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
           />
         </div>
 
-        <input
-          placeholder="Email Address"
-          value={form.email}
-          onChange={(e) =>
-            setForm({ ...form, email: e.target.value })
-          }
-          className="w-full p-3 rounded bg-gray-800 border border-white/10 focus:outline-none focus:border-emerald-500"
-        />
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">
+            {t.password}
+          </label>
+          <div className="relative">
+            <input
+              placeholder="••••••••"
+              type={showPassword ? "text" : "password"}
+              value={form.password}
+              onChange={(e) =>
+                setForm({ ...form, password: e.target.value })
+              }
+              className="w-full p-3 rounded-lg bg-gray-50 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 transition"
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
+        </div>
 
-        <input
-          placeholder="Phone Number (01XXXXXXXXX or 8801XXXXXXXX)"
-          value={form.phone}
-          onChange={(e) =>
-            setForm({ ...form, phone: e.target.value })
-          }
-          className="w-full p-3 rounded bg-gray-800 border border-white/10 focus:outline-none focus:border-emerald-500"
-        />
-
-        <input
-          placeholder="Password"
-          type="password"
-          value={form.password}
-          onChange={(e) =>
-            setForm({ ...form, password: e.target.value })
-          }
-          className="w-full p-3 rounded bg-gray-800 border border-white/10 focus:outline-none focus:border-emerald-500"
-        />
-
-        <input
-          placeholder="Promo Code (optional)"
-          value={form.promoCode || ""}
-          onChange={(e) =>
-            setForm({ ...form, promoCode: e.target.value.toUpperCase() })
-          }
-          className="w-full p-3 rounded bg-gray-800 border border-white/10 focus:outline-none focus:border-emerald-500"
-        />
-
-        {/* INFO */}
-        <p className="text-xs text-white/50">
-          🔒 You get 1000৳ demo balance instantly after registration.
-        </p>
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">
+            {t.promoCode}
+          </label>
+          <input
+            placeholder={lang === 'bn' ? "ঐচ্ছিক প্রোমো কোড" : "Optional promo code"}
+            value={form.promoCode}
+            onChange={(e) =>
+              setForm({ ...form, promoCode: e.target.value.toUpperCase() })
+            }
+            className="w-full p-3 rounded-lg bg-gray-50 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+          />
+        </div>
 
         {/* ACTION */}
         <button
           disabled={loading}
           onClick={submit}
-          className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 transition disabled:opacity-50"
+          className="w-full py-3 rounded-lg bg-black hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors"
         >
-          {loading ? "Creating account..." : "Register"}
+          {loading ? t.creatingAccount : t.registerBtn}
         </button>
 
         {/* FOOTER */}
-        <p className="text-center text-sm text-white/60">
-          Already have an account?{" "}
-          <span
-            className="text-emerald-400 cursor-pointer hover:underline"
+        <p className="text-center text-sm text-gray-600">
+          {t.alreadyHaveAccount}{" "}
+          <button
             onClick={() => router.push("/login")}
+            className="text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
           >
-            Login
-          </span>
+            {t.loginHere}
+          </button>
         </p>
       </div>
     </div>

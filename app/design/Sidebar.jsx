@@ -6,9 +6,7 @@ import { useIsGameRoute } from "@/components/hooks/useIsGameRoute";
 import { useIsDesktop } from "@/components/hooks/useIsDesktop";
 import {
   House,
-  BookOpen,
   Gamepad2,
-  Map,
   Info,
   HelpCircle,
   ChevronLeft,
@@ -20,7 +18,6 @@ export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
 
-  /* 🔑 CONTROL SIDEBAR WIDTH (DESKTOP ONLY) */
   useEffect(() => {
     document.documentElement.style.setProperty(
       "--sidebar-width",
@@ -30,7 +27,7 @@ export function Sidebar() {
 
   const menuItems = [
     { icon: House, label: "Home", path: "/" },
-    { icon: Map, label: "Roadmap", path: "/roadmap" },
+    { icon: Gamepad2, label: "Casino", path: "/casino" },
     { icon: Info, label: "About", path: "/about" },
     { icon: HelpCircle, label: "Share & Earn", path: "/share" },
   ];
@@ -38,7 +35,6 @@ export function Sidebar() {
   const isGameRoute = useIsGameRoute();
   const isDesktop = useIsDesktop();
 
-  // ❌ Hide sidebar on mobile game screens
   if (isGameRoute && !isDesktop) return null;
 
   return (
@@ -47,19 +43,23 @@ export function Sidebar() {
       <aside
         className="hidden lg:flex fixed left-0 top-16 h-[calc(100vh-4rem)]
         w-[var(--sidebar-width)]
-        flex-col border-r border-emerald-500/20
-        bg-gray-900/80 backdrop-blur
+        flex-col border-r border-purple-500/30
+        bg-black/90 backdrop-blur
         transition-all duration-300 z-40"
       >
-        {/* COLLAPSE BUTTON */}
+        {/* Sidebar neon border */}
+        <div className="absolute right-0 top-0 h-full w-0.5 bg-gradient-to-b from-purple-500/0 via-pink-500 to-purple-500/0" />
+        
+        {/* COLLAPSE BUTTON with neon glow */}
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="absolute -right-3 top-6
-          bg-gray-900 border border-emerald-500/30
-          rounded-full p-1 text-emerald-300
-          hover:bg-gray-800"
+          bg-black border-2 border-purple-500/60
+          rounded-full p-1.5 text-purple-300
+          hover:bg-purple-950/50 hover:border-pink-400 hover:shadow-[0_0_15px_rgba(236,72,153,0.5)]
+          transition-all duration-300 z-50"
         >
-          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          {collapsed ? <ChevronRight size={18} className="drop-shadow-[0_0_6px_rgba(192,38,211,0.8)]" /> : <ChevronLeft size={18} className="drop-shadow-[0_0_6px_rgba(192,38,211,0.8)]" />}
         </button>
 
         <nav className="flex flex-col gap-2 px-3 py-6">
@@ -71,24 +71,47 @@ export function Sidebar() {
               <button
                 key={item.label}
                 onClick={() => router.push(item.path)}
-                className={`group relative flex items-center gap-3 rounded-lg px-3 py-3 transition
+                className={`group relative flex items-center gap-3 rounded-lg px-3 py-3 transition-all duration-300
                 ${
                   isActive
-                    ? "text-emerald-300"
-                    : "text-gray-400 hover:text-emerald-300"
+                    ? "text-purple-300 bg-purple-950/30"
+                    : "text-gray-400 hover:text-purple-300 hover:bg-purple-950/20"
                 }`}
               >
+                {/* Active neon indicator */}
                 {isActive && (
-                  <span className="absolute left-0 top-0 h-full w-1 bg-emerald-500 rounded-r" />
+                  <span className="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-purple-500 to-pink-500 rounded-r shadow-[0_0_10px_rgba(192,38,211,0.7)]" />
                 )}
 
-                <Icon className="h-5 w-5 shrink-0" />
-
+                {/* Icon with conditional neon glow */}
+                <Icon
+                  className={`h-5 w-5 shrink-0 transition-all duration-300
+                    ${isActive 
+                      ? "text-purple-300 drop-shadow-[0_0_10px_rgba(168,85,247,0.8)] animate-pulse" 
+                      : "group-hover:text-purple-200 group-hover:drop-shadow-[0_0_8px_rgba(192,38,211,0.6)]"
+                    }
+                    ${item.label === "Casino"
+                      ? "text-pink-400 drop-shadow-[0_0_12px_rgba(236,72,153,0.9)] animate-pulse"
+                      : ""
+                    }
+                  `}
+                />
+                
+                {/* Label with neon text effect */}
                 {!collapsed && (
-                  <span className="text-sm font-medium">
+                  <span className={`text-sm font-medium transition-all duration-300
+                    ${isActive 
+                      ? "bg-gradient-to-r from-purple-300 to-pink-300 bg-clip-text text-transparent neon-text" 
+                      : "group-hover:bg-gradient-to-r group-hover:from-purple-200 group-hover:to-pink-200 group-hover:bg-clip-text group-hover:text-transparent"
+                    }`}
+                  >
                     {item.label}
                   </span>
                 )}
+                
+                {/* Hover glow effect */}
+                <div className={`absolute inset-0 rounded-lg bg-gradient-to-r from-purple-500/0 via-pink-500/0 to-purple-500/0 opacity-0 group-hover:opacity-10 transition-opacity duration-300
+                  ${isActive ? "opacity-5" : ""}`} />
               </button>
             );
           })}
@@ -97,8 +120,11 @@ export function Sidebar() {
 
       {/* ================= MOBILE BOTTOM NAV ================= */}
       <nav className="lg:hidden fixed bottom-0 inset-x-0 z-50
-        border-t border-emerald-500/20
-        bg-gray-900/95 backdrop-blur">
+        border-t border-purple-500/40
+        bg-black/95 backdrop-blur supports-[backdrop-filter]:bg-black/90">
+        {/* Top neon border */}
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-purple-500/0 via-pink-500 to-purple-500/0" />
+        
         <div className="flex justify-around py-2">
           {menuItems.map((item) => {
             const Icon = item.icon;
@@ -108,15 +134,45 @@ export function Sidebar() {
               <button
                 key={item.label}
                 onClick={() => router.push(item.path)}
-                className={`flex flex-col items-center gap-1 text-xs
+                className={`relative flex flex-col items-center gap-1 text-xs py-1 transition-all duration-300
                 ${
                   isActive
-                    ? "text-emerald-400"
-                    : "text-gray-400 hover:text-emerald-300"
+                    ? "text-purple-400"
+                    : "text-gray-400 hover:text-purple-300"
                 }`}
               >
-                <Icon className="h-5 w-5" />
-                <span>{item.label}</span>
+                {/* Active indicator glow */}
+                {isActive && (
+                  <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-10 h-0.5 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full shadow-[0_0_10px_rgba(192,38,211,0.7)]" />
+                )}
+                
+                {/* Icon container */}
+                <div className={`relative p-1.5 rounded-lg transition-all duration-300
+                  ${isActive 
+                    ? "bg-purple-950/50 shadow-inner shadow-purple-500/30" 
+                    : "group-hover:bg-purple-950/30"
+                  }`}>
+                  <Icon className={`h-5 w-5 transition-all duration-300
+                    ${isActive 
+                      ? "text-purple-300 drop-shadow-[0_0_10px_rgba(168,85,247,0.8)]" 
+                      : "group-hover:text-purple-200 group-hover:drop-shadow-[0_0_6px_rgba(192,38,211,0.6)]"
+                    }
+                    ${item.label === "Casino" && isActive
+                      ? "text-pink-300 drop-shadow-[0_0_15px_rgba(236,72,153,0.9)] animate-pulse"
+                      : ""
+                    }
+                  `} />
+                </div>
+                
+                {/* Label with neon effect for active */}
+                <span className={`font-medium transition-all duration-300
+                  ${isActive 
+                    ? "bg-gradient-to-r from-purple-300 to-pink-300 bg-clip-text text-transparent" 
+                    : ""
+                  }`}
+                >
+                  {item.label}
+                </span>
               </button>
             );
           })}

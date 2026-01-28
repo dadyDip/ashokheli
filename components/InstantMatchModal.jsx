@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { X } from "lucide-react";
+import { useLang } from "@/app/i18n/useLang";
 
 export default function InstantMatchModal({
   open,
@@ -13,6 +14,8 @@ export default function InstantMatchModal({
   const [targetScore, setTargetScore] = useState(30);
   const [entryType, setEntryType] = useState("free");
   const [entryFee, setEntryFee] = useState(0);
+  const { t } = useLang();
+
 
   if (!open) return null;
 
@@ -40,15 +43,16 @@ export default function InstantMatchModal({
 
         {/* TITLE */}
         <h2 className="text-xl font-bold text-white">
-          ⚡ Instant Match
+          ⚡ {t.instantMatch}
           <span className="block text-sm font-normal text-emerald-400 mt-1">
             {gameMode.toUpperCase()}
           </span>
         </h2>
 
+
         {/* MATCH TYPE */}
         <div>
-          <label className="text-sm text-white/70">Match Type</label>
+          <label className="text-sm text-white/70">{t.matchType}</label>
           <div className="flex gap-2 mt-2">
             <button
               onClick={() => setMatchType("per-lead")}
@@ -58,7 +62,7 @@ export default function InstantMatchModal({
                   : "border-white/10 bg-gray-800 text-white/70"
               }`}
             >
-              Per Lead
+              {t.perLead}
             </button>
 
             <button
@@ -69,7 +73,7 @@ export default function InstantMatchModal({
                   : "border-white/10 bg-gray-800 text-white/70"
               }`}
             >
-              Target Score
+              {t.targetScoreType}
             </button>
           </div>
         </div>
@@ -77,7 +81,7 @@ export default function InstantMatchModal({
         {/* TARGET SCORE */}
         {matchType === "target" && (
           <div>
-            <label className="text-sm text-white/70">Target Score</label>
+            <label className="text-sm text-white/70">{t.targetScore}</label>
             <input
               type="number"
               min={10}
@@ -91,7 +95,7 @@ export default function InstantMatchModal({
 
         {/* ENTRY TYPE */}
         <div>
-          <label className="text-sm text-white/70">Entry Type</label>
+          <label className="text-sm text-white/70">{t.entryType}</label>
           <div className="flex gap-2 mt-2">
             <button
               onClick={() => setEntryType("free")}
@@ -101,7 +105,7 @@ export default function InstantMatchModal({
                   : "border-white/10 bg-gray-800 text-white/70"
               }`}
             >
-              Free
+              {t.free}
             </button>
 
             <button
@@ -112,7 +116,7 @@ export default function InstantMatchModal({
                   : "border-white/10 bg-gray-800 text-white/70"
               }`}
             >
-              Paid
+              {t.paid}
             </button>
           </div>
         </div>
@@ -120,7 +124,7 @@ export default function InstantMatchModal({
         {/* ENTRY FEE */}
         {entryType === "paid" && (
           <div>
-            <label className="text-sm text-white/70">Entry Fee</label>
+            <label className="text-sm text-white/70">{t.entryFee}</label>
             <input
               type="number"
               min={10}
@@ -137,7 +141,7 @@ export default function InstantMatchModal({
           onClick={handleStart}
           className="w-full bg-emerald-600 hover:bg-emerald-500 transition rounded-lg py-2 font-semibold"
         >
-          Start Match
+          {t.startMatch}
         </button>
       </div>
     </div>

@@ -3,77 +3,116 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
+import { useLang } from "@/app/i18n/useLang";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useAuth(); // ✅ HOOK AT TOP LEVEL
+  const { login } = useAuth();
+  const { t, lang } = useLang();
 
-  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const submit = async () => {
-    if (!email || !password) {
-      alert("Enter email & password");
+    if (!phone || !password) {
+      alert(t.requiredFields);
       return;
     }
 
     setLoading(true);
 
-    const res = await fetch("/api/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone, password }),
+      });
 
-    const data = await res.json();
-    setLoading(false);
+      const data = await res.json();
+      setLoading(false);
 
-    if (!res.ok) {
-      alert(data || "Login failed");
-      return;
+      if (!res.ok) {
+        alert(data?.error || "Login failed");
+        return;
+      }
+
+      login(data.token, data.user);
+      router.push("/dashboard");
+
+    } catch (err) {
+      setLoading(false);
+      alert(t.serverError);
     }
-
-    login(data.token, data.user); // ✅ SAFE
-    router.push("/dashboard");
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-950 text-white">
-      <div className="w-full max-w-sm space-y-4 rounded-2xl bg-gray-900/60 p-6 border border-emerald-500/20">
-        <h2 className="text-2xl font-bold text-center">Login</h2>
+    <div className="min-h-screen flex items-center justify-center bg-white text-gray-900">
+      <div className="w-full max-w-sm space-y-6 rounded-2xl bg-white p-6 border border-gray-300 shadow-xl">
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <h2 className="text-2xl font-bold text-gray-900">{t.login}</h2>
+          {lang === 'bn' && (
+            <p className="text-sm text-gray-600">আপনার অ্যাকাউন্টে প্রবেশ করুন</p>
+          )}
+        </div>
 
-        <input
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full p-3 rounded bg-gray-800 border border-white/10"
-        />
+        {/* Phone Input */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">
+            {t.phoneNumber}
+          </label>
+          <input
+            placeholder={lang === 'bn' ? "০১XXXXXXXXX" : "01XXXXXXXXX"}
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            className="w-full p-3 rounded-lg bg-gray-50 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
+          />
+        </div>
 
-        <input
-          placeholder="Password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full p-3 rounded bg-gray-800 border border-white/10"
-        />
+        {/* Password Input with Show/Hide */}
+        <div className="space-y-1">
+          <label className="text-sm font-medium text-gray-700">
+            {t.password}
+          </label>
+          <div className="relative">
+            <input
+              placeholder="••••••••"
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full p-3 rounded-lg bg-gray-50 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 transition"
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
+        </div>
 
+        {/* Login Button */}
         <button
           disabled={loading}
           onClick={submit}
-          className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+          className="w-full py-3 rounded-lg bg-black hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium transition-colors"
         >
-          {loading ? "Logging in..." : "Login"}
+          {loading ? t.loggingIn : t.loginBtn}
         </button>
 
-        <p className="text-center text-sm text-white/60">
-          Don’t have an account?{" "}
-          <span
-            className="text-emerald-400 cursor-pointer"
+        {/* Register Link */}
+        <p className="text-center text-sm text-gray-600">
+          {t.dontHaveAccount}{" "}
+          <button
             onClick={() => router.push("/register")}
+            className="text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
           >
-            Register
-          </span>
+            {t.registerHere}
+          </button>
         </p>
       </div>
     </div>

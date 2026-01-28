@@ -23,7 +23,6 @@ export function startCallBreak(room) {
   room.phase = "bidding";
   room.playedCards = [];
   room.bids = {};
-
   const deck = createDeck();
   shuffle(deck);
 
@@ -33,18 +32,72 @@ export function startCallBreak(room) {
   room.tricksPlayed = 0;
   room.roundToken = (room.roundToken || 0) + 1;
   room.trumpUnlocked = false;
-  // deal cards
-  const hands = deal(deck, room.order, 13);
-
+  let hands;
+  if (room.fairness?.mode === "SOFT_BIAS") {
+    hands = biasedDeal(deck, room);
+  } else {
+    hands = deal(deck, room.order, 13);
+  }
   room.order.forEach(pid => {
     const p = room.playersData[pid];
     p.hand = hands[pid];
     p.tricks = 0;
     p.bid = null;
   });
-
+  delete room._aiMemory;
+  
   // First bidder = left of dealer
   room.turn = room.order[(room.dealerIndex + 1) % 4];
+}
+
+function biasedDeal(deck, room) {
+  const aiPids = room.order.filter(pid => room.playersData[pid].isAI);
+  const humanPids = room.order.filter(pid => !room.playersData[pid].isAI);
+
+  const HIGH = ["A", "K", "Q", "J"];
+  const trumpSuit = room.trumpSuit;
+
+  // Probability controls (SAFE RANGE)
+  const biasChance = 0.65; // NOT 100%
+
+  // fallback to fair deal
+  if (Math.random() > biasChance) {
+    return deal(deck, room.order, 13);
+  }
+
+  const highTrump = [];
+  const highNonTrump = [];
+  const lowCards = [];
+
+  for (const c of deck) {
+    if (HIGH.includes(c.value) && c.suit === trumpSuit) highTrump.push(c);
+    else if (HIGH.includes(c.value)) highNonTrump.push(c);
+    else lowCards.push(c);
+  }
+
+  const hands = {};
+  room.order.forEach(pid => hands[pid] = []);
+
+  // 🎯 Give AI a *small* edge
+  aiPids.forEach(pid => {
+    if (highTrump.length) hands[pid].push(highTrump.pop());
+    if (highNonTrump.length) hands[pid].push(highNonTrump.pop());
+  });
+
+  // Normal deal remainder
+  const remainingDeck = [...highTrump, ...highNonTrump, ...lowCards];
+  shuffle(remainingDeck);
+
+  let i = 0;
+  while (remainingDeck.length) {
+    const pid = room.order[i % room.order.length];
+    if (hands[pid].length < 13) {
+      hands[pid].push(remainingDeck.pop());
+    }
+    i++;
+  }
+
+  return hands;
 }
 
 /* =====================================================
@@ -59,6 +112,8 @@ export function placeBid(room, pid, bid) {
 
   bid = Number(bid);
   if (!Number.isInteger(bid) || bid < 1 || bid > 13) return;
+  if (!room.bidOrder) room.bidOrder = [];
+  room.bidOrder.push(pid);
 
   p.bid = bid;
   room.bids[pid] = bid;
@@ -273,33 +328,58 @@ function scoreRound(room) {
   room.roundHistory.push(snapshot);
 }
 
+function decideCallBreakWinner(room) {
+  const players = room.order.map(pid => {
+    const p = room.playersData[pid];
+    return {
+      pid,
+      bid: p.bid ?? 0,
+      tricks: p.tricks ?? 0,
+      score: p.score ?? 0,
+      bidIndex: room.bidOrder?.indexOf(pid) ?? 999,
+    };
+  });
+
+  // 1️⃣ Players who completed their bid
+  const completed = players.filter(p => p.tricks >= p.bid && p.bid > 0);
+
+  if (completed.length > 0) {
+    completed.sort((a, b) => {
+      // Higher bid wins
+      if (b.bid !== a.bid) return b.bid - a.bid;
+      // Earlier bidder wins
+      return a.bidIndex - b.bidIndex;
+    });
+
+    return completed[0].pid;
+  }
+
+  // 2️⃣ Nobody completed → highest score
+  players.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.bidIndex - b.bidIndex;
+  });
+
+  return players[0].pid;
+}
+
 function endGame(room) {
-  if (room.phase === "ended") return; // 🛑 SAFETY
+  if (room.phase === "ended") return;
 
   room.phase = "ended";
 
-  let winner = null;
-  let maxScore = -Infinity;
-
-  room.order.forEach(pid => {
-    const score = room.playersData[pid].score;
-    if (score > maxScore) {
-      maxScore = score;
-      winner = pid;
-    }
-  });
-
+  const winner = decideCallBreakWinner(room);
   room.winner = winner;
 
   console.log("🏆 CALL BREAK FINISHED");
   console.log("Winner:", winner);
 
-  // 🔥 TRIGGER SETTLEMENT
   setImmediate(() => {
     onGameEnded(room).catch(err =>
       console.error("💥 Settlement failed", err)
     );
   });
 }
+
 
 

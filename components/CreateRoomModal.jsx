@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/app/design/ui/button";
+import { useLang } from "@/app/i18n/useLang";
 
 export function CreateRoomModal({
   open,
@@ -19,16 +20,14 @@ export function CreateRoomModal({
   const [targetScore, setTargetScore] = useState(100);
   const [isPaid, setIsPaid] = useState(false);
   const [entryFee, setEntryFee] = useState(50);
+  const { t } = useLang();
 
   if (!open) return null;
 
-  const modes =
-    game === "cards"
-      ? [
-          { label: "Call Break", value: "callbreak" },
-          { label: "7 Cards (2v2)", value: "seven" },
-        ]
-      : [];
+  const modes = [
+    { value: "callbreak" },
+    { value: "seven" },
+  ];
 
   const submit = async () => {
     if (!mode) {
@@ -36,19 +35,22 @@ export function CreateRoomModal({
       return;
     }
 
-    if (isPaid && entryFee < 10) {
-      alert("Minimum entry fee is 10 TK");
+    if (isPaid && entryFee < 1) {
+      alert("Minimum entry fee is 1 TK");
       return;
     }
 
-    if (isPaid && userBalance < entryFee) {
-      alert("❌ Not enough balance to create this paid room");
+    // Convert entryFee to paisa for comparison
+    const entryFeeInPaisa = entryFee * 100;
+    
+    if (isPaid && userBalance < entryFeeInPaisa) {
+      alert(`❌ Not enough balance to create this paid room.\nYour balance: ${(userBalance / 100).toFixed(2)} TK\nRequired: ${entryFee} TK`);
       return;
     }
 
     await onCreate({
       mode,
-      matchType, // ✅ SEND TO SERVER
+      matchType,
       targetScore: matchType === "target" ? targetScore : null,
       entryFee: isPaid ? entryFee : 0,
     });
@@ -63,11 +65,14 @@ export function CreateRoomModal({
           <X />
         </button>
 
-        <h2 className="text-xl font-bold text-white">Create Room</h2>
-
+        <h2 className="text-xl font-bold text-white">
+          {t.createRoom}
+        </h2>
         {/* GAME MODE */}
         <div>
-          <label className="text-sm text-white/70">Game Mode</label>
+          <label className="text-sm text-white/70">
+            {t.gameMode}
+          </label>
           <div className="grid grid-cols-2 gap-2 mt-2">
             {modes.map((m) => (
               <button
@@ -79,7 +84,7 @@ export function CreateRoomModal({
                     : "border-white/10 bg-gray-800 text-white/70"
                 }`}
               >
-                {m.label}
+                {t[m.value]}
               </button>
             ))}
           </div>
@@ -87,7 +92,7 @@ export function CreateRoomModal({
 
         {/* 🆕 MATCH TYPE */}
         <div>
-          <label className="text-sm text-white/70">Match Type</label>
+          <label className="text-sm text-white/70">{t.matchType}</label>
           <div className="flex gap-2 mt-2">
             <button
               onClick={() => setMatchType("target")}
@@ -97,7 +102,7 @@ export function CreateRoomModal({
                   : "bg-gray-800"
               }`}
             >
-              Target Score
+              {t.targetMode}
             </button>
 
             <button
@@ -108,7 +113,7 @@ export function CreateRoomModal({
                   : "bg-gray-800"
               }`}
             >
-              Per Lead (1 Round)
+              {t.perLeadMode}
             </button>
           </div>
         </div>
@@ -116,7 +121,7 @@ export function CreateRoomModal({
         {/* 🎯 TARGET SCORE (ONLY FOR TARGET MODE) */}
         {matchType === "target" && (
           <div>
-            <label className="text-sm text-white/70">Target Score</label>
+            <label className="text-sm text-white/70">{t.targetScore}</label>
             <input
               type="number"
               min={50}
@@ -130,7 +135,7 @@ export function CreateRoomModal({
 
         {/* ROOM TYPE */}
         <div>
-          <label className="text-sm text-white/70">Room Type</label>
+          <label className="text-sm text-white/70">{t.roomType}</label>
           <div className="flex gap-2 mt-2">
             <button
               onClick={() => setIsPaid(false)}
@@ -138,7 +143,7 @@ export function CreateRoomModal({
                 !isPaid ? "bg-emerald-600" : "bg-gray-800"
               }`}
             >
-              Free
+              {t.free}
             </button>
 
             <button
@@ -147,14 +152,14 @@ export function CreateRoomModal({
                 isPaid ? "bg-emerald-600" : "bg-gray-800"
               }`}
             >
-              Paid
+              {t.paid}
             </button>
           </div>
         </div>
 
         {isPaid && (
           <div>
-            <label className="text-sm text-white/70">Entry Fee (TK)</label>
+            <label className="text-sm text-white/70">{t.entryFee}(TK)</label>
             <input
               type="number"
               min={10}
@@ -167,7 +172,7 @@ export function CreateRoomModal({
         )}
 
         <Button className="w-full bg-emerald-600" onClick={submit}>
-          Create Room
+          {t.createRoom}
         </Button>
       </div>
     </div>

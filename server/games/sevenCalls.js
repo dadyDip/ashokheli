@@ -107,8 +107,6 @@ function calculateTeamBids(room) {
   room.teamBidder[team] = highestBidder;
 }
 
-
-
 export function placeBid(room, pid, bid, emitCb) {
   const p = room.playersData[pid];
   if (p.bid !== null) return;
@@ -199,14 +197,18 @@ export function setPowerCard(room, pid, card) {
    DEAL REMAINING CARDS
 ====================================================== */
 function dealRemainingCards(room) {
+  // First: normal safe deal (no bias yet)
   room.order.forEach(pid => {
     const p = room.playersData[pid];
     const needed = 13 - p.hand.length;
-    // Make sure power card is not duplicated
     const extraCards = room.deck.splice(0, needed);
     p.hand.push(...extraCards);
   });
+
+  // 🔥 APPLY CASINO BIAS AFTER NORMAL DEAL
+  applyCasinoBias(room);
 }
+
 
 /* ======================================================
    PLAY CARD
@@ -642,3 +644,102 @@ function resetForNextRound(room) {
   room.turn = room.order[startIndex];
 }
 
+function getDealRole(room, pid) {
+  const p = room.playersData[pid];
+  if (!p?.isAI) return "HUMAN";
+
+  const teammate = Object.values(room.playersData)
+    .find(x => x.team === p.team && x.pid !== pid);
+
+  if (teammate && !teammate.isAI) return "HUMAN_TEAM_AI";
+  return "ENEMY_AI";
+}
+
+function applyCasinoBias(room) {
+  const HIGH = ["A","K"];
+  const MED = ["Q","J","10"];
+  const MID = ["5","6"];
+  const LOW = ["2","3","4","7","8","9"];
+
+  const deck = room.deck;
+
+  function pull(filterFn) {
+    const i = deck.findIndex(filterFn);
+    if (i === -1) return null;
+    return deck.splice(i, 1)[0];
+  }
+
+  function fill(pid, profile) {
+    const p = room.playersData[pid];
+    const need = 13 - p.hand.length;
+
+    let highs = 0;
+
+    for (let i = 0; i < need; i++) {
+      let card = null;
+
+      /* ===============================
+         💀 HUMAN TEAM AI = TRASH HAND
+      =============================== */
+      if (profile === "CRIPPLED") {
+        if (highs < 1 && Math.random() < 0.15) {
+          card = pull(c => HIGH.includes(c.value));
+          if (card) highs++;
+        }
+
+        card =
+          card ||
+          pull(c => MID.includes(c.value)) ||
+          pull(c => LOW.includes(c.value)) ||
+          pull(c => MED.includes(c.value));
+
+      }
+
+      /* ===============================
+         🎯 HUMAN PLAYER = ALMOST GOOD
+      =============================== */
+      else if (profile === "SOFT_LOSS") {
+        if (highs < 2 && Math.random() < 0.25) {
+          card = pull(c => HIGH.includes(c.value));
+          if (card) highs++;
+        }
+
+        card =
+          card ||
+          pull(c => MED.includes(c.value)) ||
+          pull(c => MID.includes(c.value)) ||
+          pull(c => LOW.includes(c.value));
+      }
+
+      /* ===============================
+         👑 ENEMY AI = STRONG
+      =============================== */
+      else {
+        if (highs < 3 && Math.random() < 0.45) {
+          card = pull(c => HIGH.includes(c.value));
+          if (card) highs++;
+        }
+
+        card =
+          card ||
+          pull(c => MED.includes(c.value)) ||
+          pull(c => MID.includes(c.value)) ||
+          pull(c => LOW.includes(c.value));
+      }
+
+      if (card) p.hand.push(card);
+    }
+  }
+
+  room.order.forEach(pid => {
+    const role = getDealRole(room, pid);
+
+    if (role === "HUMAN_TEAM_AI") {
+      fill(pid, "CRIPPLED");       // 🔥 2–3 tricks max
+    } else if (role === "HUMAN") {
+      fill(pid, "SOFT_LOSS");      // looks playable
+    } else {
+      fill(pid, "STRONG");         // enemy AI dominates
+    }
+  });
+}

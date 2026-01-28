@@ -23,6 +23,9 @@ export async function GET(req) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
+        id: true,
+        firstName: true,
+        lastName: true,
         balance: true,
         totalDeposited: true,
         totalWithdrawn: true,
@@ -31,6 +34,7 @@ export async function GET(req) {
         losses: true,
       },
     });
+
 
     return NextResponse.json(user);
   } catch (err) {

@@ -5,6 +5,7 @@ import { Button } from "./ui/button";
 import { useState, useEffect } from "react";
 import { CreateRoomModal } from "@/components/CreateRoomModal";
 import { CreateLudoRoomModal } from "@/components/CreateLudoRoomModal";
+import { useLang } from "@/app/i18n/useLang";
 
 export function HeroSection({
   onJoinCard,
@@ -14,8 +15,7 @@ export function HeroSection({
   onSetLudoRoomId,
 }) {
   const [openModal, setOpenModal] = useState(false);
-
-  // ✅ PUT IT HERE (INSIDE COMPONENT)
+  const { t } = useLang();
   const [userBalance, setUserBalance] = useState(null);
   const [openJoinPopup, setOpenJoinPopup] = useState(false);
   const [openLudoJoinPopup, setOpenLudoJoinPopup] = useState(false);
@@ -65,16 +65,12 @@ export function HeroSection({
         {/* TITLE */}
         <div className="text-center mb-14">
           <h1 className="text-4xl md:text-6xl font-bold mb-4 text-white leading-tight">
-            First time in Bangladesh ❄️
+            {t.heroTitleMain}
             <br />
             <span className="text-emerald-400">
-              Enjoy cards & board games this winter
+              {t.heroTitleSub}
             </span>
           </h1>
-
-          <Badge className="px-4 py-2 text-sm bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-            Beta • Paid Matches
-          </Badge>
         </div>
 
         {/* GAME CARDS */}
@@ -90,26 +86,26 @@ export function HeroSection({
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
 
             <div className="absolute bottom-0 p-6 space-y-3">
-              <h3 className="text-2xl font-bold text-white">🃏 Card Games</h3>
+              <h3 className="text-2xl font-bold text-white">
+                🃏 {t.cardGames}
+              </h3>
 
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  className="bg-emerald-600 hover:bg-emerald-700"
-                  onClick={() => setOpenModal(true)}
-                >
-                  Create Room
-                </Button>
+              <Button
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700"
+                onClick={() => setOpenModal(true)}
+              >
+                {t.createRoom}
+              </Button>
 
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="bg-white/10 text-white"
-                  onClick={() => setOpenJoinPopup(true)}
-                >
-                  Join with Room ID
-                </Button>
-              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="bg-white/10 text-white"
+                onClick={() => setOpenJoinPopup(true)}
+              >
+                {t.joinWithRoomId}
+              </Button>
             </div>
           </div>
 
@@ -124,27 +120,26 @@ export function HeroSection({
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
 
             <div className="absolute bottom-0 p-6 space-y-3">
-              <h3 className="text-2xl font-bold text-white">🎲 Ludo</h3>
+              <h3 className="text-2xl font-bold text-white">
+                🎲 {t.ludo}
+              </h3>
 
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  className="bg-emerald-600 hover:bg-emerald-700"
-                  onClick={() => setShowLudoModal(true)}
-                >
-                  Create Room
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="bg-white/10 text-white"
-                  onClick={() => setOpenLudoJoinPopup(true)}
-                >
-                  Join with Room ID
-                </Button>
+              <Button
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700"
+                onClick={() => setShowLudoModal(true)}
+              >
+                {t.createRoom}
+              </Button>
 
-
-              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="bg-white/10 text-white"
+                onClick={() => setOpenLudoJoinPopup(true)}
+              >
+                {t.joinWithRoomId}
+              </Button>
             </div>
           </div>
         </div>
