@@ -1,68 +1,69 @@
 "use client";
 
-import { Wallet, ArrowDown, History, Banknote } from "lucide-react";
+import { Wallet, ArrowDown, History, Banknote, Gift } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useState } from "react";
 
 import { DepositModal } from "@/components/wallet/DepositModal";
-import WithdrawModal from "@/components/wallet/WithdrawModal";
 import { useLang } from "@/app/i18n/useLang";
 
 export function QuickActions() {
   const router = useRouter();
-
   const lang = useLang();
-  const t = lang?.t || {}; // ✅ SAFE
-
-  const [depositOpen, setDepositOpen] = useState(false);
-  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const t = lang?.t || {};
 
   return (
-    <>
-      <DepositModal open={depositOpen} onClose={() => setDepositOpen(false)} />
-      <WithdrawModal open={withdrawOpen} onClose={() => setWithdrawOpen(false)} />
+    <section className="max-w-5xl mx-auto grid grid-cols-2 sm:grid-cols-5 gap-4">
+      <Link
+        href="/deposit"
+        className="rounded-xl bg-gray-900/70 backdrop-blur border border-emerald-500/30 p-4 text-center hover:bg-emerald-500/10 transition"
+      >
+        <Wallet className="mx-auto mb-2 text-emerald-400" />
+        <span className="text-sm font-medium">
+          {t.deposit ?? "Deposit"}
+        </span>
+      </Link>
 
-      <section className="max-w-5xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <button
-          onClick={() => setDepositOpen(true)}
-          className="rounded-xl bg-gray-900/70 backdrop-blur border border-emerald-500/30 p-4 text-center hover:bg-emerald-500/10 transition"
-        >
-          <Wallet className="mx-auto mb-2 text-emerald-400" />
-          <span className="text-sm font-medium">
-            {t.deposit ?? "Deposit"}
-          </span>
-        </button>
+      <Link
+        href="/dashboard/withdraw"
+        className="rounded-xl bg-gray-900/70 backdrop-blur border border-emerald-500/30 p-4 text-center hover:bg-emerald-500/10 transition"
+      >
+        <ArrowDown className="mx-auto mb-2 text-emerald-400" />
+        <span className="text-sm font-medium">
+          {t.withdraw ?? "Withdraw"}
+        </span>
+      </Link>
 
-        <button
-          onClick={() => setWithdrawOpen(true)}
-          className="rounded-xl bg-gray-900/70 backdrop-blur border border-emerald-500/30 p-4 text-center hover:bg-emerald-500/10 transition"
-        >
-          <ArrowDown className="mx-auto mb-2 text-emerald-400" />
-          <span className="text-sm font-medium">
-            {t.withdraw ?? "Withdraw"}
-          </span>
-        </button>
+      <Link
+        href="/dashboard/betting-records"
+        className="rounded-xl bg-gray-900/70 backdrop-blur border border-emerald-500/30 p-4 text-center hover:bg-emerald-500/10 transition"
+      >
+        <History className="mx-auto mb-2 text-emerald-400" />
+        <span className="text-sm font-medium">
+          {t.bettingRecords ?? "Betting Records"}
+        </span>
+      </Link>
 
-        <button
-          onClick={() => router.push("/dashboard/transactions")}
-          className="rounded-xl bg-gray-900/70 backdrop-blur border border-emerald-500/30 p-4 text-center hover:bg-emerald-500/10 transition"
-        >
-          <History className="mx-auto mb-2 text-emerald-400" />
-          <span className="text-sm font-medium">
-            {t.history ?? "History"}
-          </span>
-        </button>
+      <Link
+        href="/dashboard/payment"
+        className="rounded-xl bg-gray-900/70 backdrop-blur border border-emerald-500/30 p-4 text-center hover:bg-emerald-500/10 transition"
+      >
+        <Banknote className="mx-auto mb-2 text-emerald-400" />
+        <span className="text-sm font-medium">
+          {t.paymentSetup ?? "Payment Setup"}
+        </span>
+      </Link>
 
-        <button
-          onClick={() => router.push("/dashboard/payment")}
-          className="rounded-xl bg-gray-900/70 backdrop-blur border border-emerald-500/30 p-4 text-center hover:bg-emerald-500/10 transition"
-        >
-          <Banknote className="mx-auto mb-2 text-emerald-400" />
-          <span className="text-sm font-medium">
-            {t.paymentSetup ?? "Payment Setup"}
-          </span>
-        </button>
-      </section>
-    </>
+      <Link
+        href="/share"
+        className="rounded-xl bg-gradient-to-r from-yellow-600 to-amber-600 border border-yellow-500/50 p-4 text-center hover:from-yellow-500 hover:to-amber-500 transition shadow-lg"
+      >
+        <Gift className="mx-auto mb-2 text-white" />
+        <span className="text-sm font-medium text-white">
+          {t.claimBonus ?? "Claim Bonus"}
+        </span>
+      </Link>
+    </section>
   );
 }

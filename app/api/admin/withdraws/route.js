@@ -1,39 +1,36 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import jwt from "jsonwebtoken";
+import { verifyToken } from "@/lib/auth";
 
 export async function GET(req) {
   try {
-    // 🔐 Read & validate token (same pattern as deposits)
-    const auth = req.headers.get("authorization");
-    if (!auth?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const token = auth.split(" ")[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    if (decoded.role !== "admin") {
+    const admin = verifyToken(req);
+    if (!admin || admin.role !== "admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // ✅ Fetch pending withdraws
     const withdraws = await prisma.withdrawRequest.findMany({
-      where: { status: "pending" },
+      where: {
+        status: "pending"
+      },
       include: {
         user: {
           select: {
             id: true,
-            email: true,
-          },
-        },
+            firstName: true,
+            lastName: true,
+            phone: true, // Only phone, no email
+          }
+        }
       },
-      orderBy: { createdAt: "asc" },
+      orderBy: {
+        createdAt: "desc"
+      }
     });
 
     return NextResponse.json(withdraws);
-  } catch (err) {
-    console.error("Admin withdraw fetch error:", err);
+  } catch (error) {
+    console.error("Error fetching withdraws:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

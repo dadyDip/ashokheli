@@ -87,7 +87,7 @@ export function BalanceCard({ lang = "en" }) {
       <div className="sm:w-1/2 flex flex-col justify-between">
         <div className="text-right">
           <div className="text-sm text-white/60">
-            {t.demoBalance || "Demo Balance"}
+            {t.demoBalance || "Balance"}
           </div>
           <div className="text-4xl font-bold mt-1">
             ৳ {balance}

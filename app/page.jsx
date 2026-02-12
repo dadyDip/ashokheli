@@ -23,7 +23,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [selectedMode, setSelectedMode] = useState(null);
-  
+  const [hasTurnover, setHasTurnover] = useState(false);
+
   // Casino state
   const [bonusAmount, setBonusAmount] = useState(1010000);
   const [isLaunching, setIsLaunching] = useState(false);
@@ -87,9 +88,9 @@ export default function Home() {
       providerName: "PGSoft"
     },
     {
-      game_code: "149",
-      game_name: "Jungle Delight",
-      game_img: "https://softapi2.shop/uploads/games/jungle-delight-232e8e0c74f9bb16ab676e5ed49d72b4.png",
+      game_code: "916",
+      game_name: "Wild Bounty Showdown",
+      game_img: "https://softapi2.shop/uploads/games/wild-bounty-showdown-c98bb64436826fe9a2c62955ff70cba9.png",
       category: "Slots",
       providerId: "45",
       providerName: "PGSoft"
@@ -224,8 +225,21 @@ export default function Home() {
     setPlayerId(pid);
     setLoading(false);
 
-    // Bonus counter animation
-    let currentAmount = 1010000;
+    // Bonus counter animation - Start from random value above 200M
+    // Generate random number between 200,000,000 and 350,000,000
+    // Using realistic bonus amounts
+    const minBonus = 200000000; // 200M
+    const maxBonus = 350000000; // 350M
+    
+    // Create more varied starting points (200M, 210M, 225M, 245M, 280M, 310M, etc.)
+    const randomStep = Math.floor(Math.random() * 15) * 10000000; // 0-140M in 10M steps
+    const randomStart = minBonus + randomStep + Math.floor(Math.random() * 5000000);
+    
+    let currentAmount = randomStart;
+    setBonusAmount(currentAmount);
+    
+    console.log(`Bonus counter starting from: ${currentAmount.toLocaleString()}`);
+
     const incrementInterval = setInterval(() => {
       currentAmount += 10;
       setBonusAmount(currentAmount);
@@ -234,22 +248,87 @@ export default function Home() {
     return () => clearInterval(incrementInterval);
   }, []);
 
+  const checkTurnoverStatus = async (userToken) => {
+    try {
+      const res = await fetch("/api/wallet/summary", {
+        headers: {
+          Authorization: `Bearer ${userToken || token}`,
+        },
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        // Set state for UI updates if needed
+        setHasTurnover(data.isBalanceLocked || false);
+        
+        if (data.isBalanceLocked) {
+          // Get Bengali/English message based on user preference
+          const lang = localStorage.getItem('lang') || 'bn';
+          const message = lang === 'bn' 
+            ? "❌ টার্নওভার সম্পূর্ণ না হওয়া পর্যন্ত রুম তৈরি বা যোগদান করা যাবে না। প্রথমে ক্যাসিনোতে গেম খেলে টার্নওভার শেষ করুন।"
+            : "❌ You cannot create or join rooms until turnover is completed. Please complete turnover by playing casino games first.";
+          
+          alert(message);
+          return false;
+        }
+        return true;
+      }
+    } catch (err) {
+      console.error("Turnover check error:", err);
+    }
+    return true; // Allow by default if API fails
+  };
+
   // ================= AUTH GUARD =================
-  const requireAuth = (fn) => {
+  const requireAuth = async (fn) => {
+    console.log("requireAuth called, token:", !!token, "user:", !!user); // Debug
     if (!token || !user) {
       router.push("/login");
       return;
     }
+    
+    // Check turnover status before allowing any room action
+    console.log("Checking turnover status..."); // Debug
+    const canProceed = await checkTurnoverStatus(token);
+    console.log("Turnover check result:", canProceed); // Debug
+    
+    if (!canProceed) {
+      return;
+    }
+    
+    console.log("Executing function"); // Debug
     fn();
   };
-
+  
   const createLudoRoom = async ({ maxPlayers, entryFee }) => {
+    const canProceed = await checkTurnoverStatus(token);
+    if (!canProceed) {
+      return;
+    }
+    
+    // HARDCODED SERVER MAINTENANCE MESSAGE
+    const lang = localStorage.getItem('lang') || 'bn';
+    const message = lang === 'bn' 
+      ? "🚧 সার্ভার মেইনটেনেন্স চলছে। কিছুক্ষণ পরে আবার চেষ্টা করুন।"
+      : "🚧 Server under maintenance. Please try again later.";
+    
+    alert(message);
+    return;
+    
+    /* 
+    // COMMENTED OUT THE REST OF THE FUNCTION SINCE SERVER IS DOWN
     try {
       // Convert entryFee to paisa for comparison
       const entryFeeInPaisa = entryFee * 100;
       
       if (entryFee > 0 && user.balance < entryFeeInPaisa) {
-        alert(`❌ Not enough balance\nYour balance: ${(user.balance / 100).toFixed(2)} TK\nRequired: ${entryFee} TK`);
+        // Multi-language balance error message
+        const lang = localStorage.getItem('lang') || 'bn';
+        const message = lang === 'bn' 
+          ? `❌ পর্যাপ্ত ব্যালেন্স নেই\nআপনার ব্যালেন্স: ${(user.balance / 100).toFixed(2)} টাকা\nপ্রয়োজন: ${entryFee} টাকা`
+          : `❌ Not enough balance\nYour balance: ${(user.balance / 100).toFixed(2)} TK\nRequired: ${entryFee} TK`;
+        
+        alert(message);
         return;
       }
 
@@ -278,9 +357,53 @@ export default function Home() {
       console.error(err);
       alert("Could not create Ludo room");
     }
+    */
   };
 
+  // const createLudoRoom = async ({ maxPlayers, entryFee }) => {
+  //   const canProceed = await checkTurnoverStatus(token);
+  //   if (!canProceed) {
+  //     return;
+  //   }
+  //   try {
+  //     // Convert entryFee to paisa for comparison
+  //     const entryFeeInPaisa = entryFee * 100;
+      
+  //     if (entryFee > 0 && user.balance < entryFeeInPaisa) {
+  //       alert(`❌ Not enough balance\nYour balance: ${(user.balance / 100).toFixed(2)} TK\nRequired: ${entryFee} TK`);
+  //       return;
+  //     }
+
+  //     const res = await fetch("/api/ludo/create", {
+  //       method: "POST",
+  //       headers: {
+  //         "Content-Type": "application/json",
+  //         Authorization: `Bearer ${token}`,
+  //       },
+  //       body: JSON.stringify({
+  //         maxPlayers,
+  //         entryFee: entryFee * 100,
+  //         userId: user.id,
+  //       }),
+  //     });
+
+  //     const data = await res.json();
+
+  //     if (!res.ok) {
+  //       alert(data?.error || "Failed to create room");
+  //       return;
+  //     }
+
+  //     router.push(`/game/ludo/${data.roomId}`);
+  //   } catch (err) {
+  //     console.error(err);
+  //     alert("Could not create Ludo room");
+  //   }
+  // };
+
   const joinLudoRoom = () => {
+    
+
     if (!roomIdInput) return;
     router.push(`/game/ludo/${roomIdInput}`);
   };
@@ -289,6 +412,10 @@ export default function Home() {
   const createCardRoom = async ({ mode, matchType, targetScore, entryFee }) => {
     if (!socketReady || !socket) {
       alert("Game server not ready yet, please wait 1–2 seconds");
+      return;
+    }
+    const canProceed = await checkTurnoverStatus(token);
+    if (!canProceed) {
       return;
     }
 
@@ -348,39 +475,57 @@ export default function Home() {
     }
   };
 
-  // ===== JOIN CARD ROOM =====
   const joinCardRoom = async (roomId) => {
+    
+    // First check if user is authenticated
+    if (!token || !user) {
+      router.push("/login");
+      return;
+    }
+    
+    // Then check turnover status
+    const canProceed = await checkTurnoverStatus(token);
+    if (!canProceed) {
+      console.log("Turnover check failed"); // Debug
+      return;
+    }
+    
     try {
-      if (!roomId) {
-        alert("Enter room ID");
-        return;
-      }
+      console.log("Attempting to join room:", roomId); // Debug
+      
       if (!socketReady || !socket) {
-        alert("Connecting to game server… please wait");
+        const lang = localStorage.getItem('lang') || 'bn';
+        const message = lang === 'bn' 
+          ? "গেম সার্ভারের সাথে সংযোগ করা হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন"
+          : "Connecting to game server… please wait";
+        alert(message);
         return;
       }
 
-      // Get fresh balance from API
-      const token = localStorage.getItem("token");
+      // Get fresh balance from API - DON'T redeclare token
+      const currentToken = localStorage.getItem("token"); // ✅ Use different variable name
       const balanceRes = await fetch("/api/wallet/summary", {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${currentToken}`,
         },
       });
       
       if (!balanceRes.ok) {
-        alert("Failed to fetch balance");
+        const lang = localStorage.getItem('lang') || 'bn';
+        const message = lang === 'bn' 
+          ? "ব্যালেন্স চেক করতে ব্যর্থ হয়েছে"
+          : "Failed to fetch balance";
+        alert(message);
         return;
       }
       
       const balanceData = await balanceRes.json();
       const userBalance = balanceData.balance || 0;
-
       const res = await fetch("/api/rooms", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${currentToken}`,
         },
         body: JSON.stringify({
           action: "JOIN",
@@ -389,6 +534,7 @@ export default function Home() {
       });
 
       const data = await res.json();
+      
       if (!res.ok) {
         alert(data?.error || "Failed to join room");
         return;
@@ -398,14 +544,24 @@ export default function Home() {
       const roomEntryFeeInTaka = roomEntryFee / 100;
       
       if (roomEntryFee > 0 && userBalance < roomEntryFee) {
-        alert(`❌ Not enough balance to join this paid room.\nYour balance: ${(userBalance / 100).toFixed(2)} TK\nRequired: ${roomEntryFeeInTaka} TK`);
+        const lang = localStorage.getItem('lang') || 'bn';
+        const message = lang === 'bn' 
+          ? `❌ পেইড রুমে যোগ দিতে পর্যাপ্ত ব্যালেন্স নেই।\nআপনার ব্যালেন্স: ${(userBalance / 100).toFixed(2)} টাকা\nপ্রয়োজন: ${roomEntryFeeInTaka} টাকা`
+          : `❌ Not enough balance to join this paid room.\nYour balance: ${(userBalance / 100).toFixed(2)} TK\nRequired: ${roomEntryFeeInTaka} TK`;
+        
+        alert(message);
         return;
       }
-
       router.push(`/game/cards/${roomId}?mode=${data.gameType || "callbreak"}`);
     } catch (error) {
       console.error("Error joining room:", error);
-      alert("Failed to join room");
+      
+      const lang = localStorage.getItem('lang') || 'bn';
+      const message = lang === 'bn' 
+        ? "রুমে যোগ দিতে ব্যর্থ হয়েছে। আবার চেষ্টা করুন।"
+        : "Failed to join room. Please try again.";
+      
+      alert(message);
     }
   };
 
@@ -464,196 +620,13 @@ export default function Home() {
         <main>
           <HeroSection
             onCreateCard={(data) => requireAuth(() => createCardRoom(data))}
-            onJoinCard={() => requireAuth(joinCardRoom)}
+            onJoinCard={(roomId) => requireAuth(() => joinCardRoom(roomId))}
             onCreateLudoRoom={(data) =>
               requireAuth(() => createLudoRoom(data))
             }
             onJoinLudo={() => requireAuth(joinLudoRoom)}
             onSetLudoRoomId={setRoomIdInput}
           />
-
-          {/* CASINO SECTION - ADDED AFTER HERO */}
-          <section className="max-w-7xl mx-auto mt-12 md:mt-16 px-4">
-            {/* Section Header with Bengali */}
-            <div className="flex items-center justify-center mb-6 md:mb-8">
-              <div className="w-8 md:w-12 h-0.5 bg-gradient-to-r from-transparent via-purple-500 to-transparent"></div>
-              <h2 className="text-base md:text-lg font-bold text-white mx-3 md:mx-4">
-                🎰 প্রিমিয়াম ক্যাসিনো গেমস
-              </h2>
-              <div className="w-8 md:w-12 h-0.5 bg-gradient-to-r from-transparent via-purple-500 to-transparent"></div>
-            </div>
-
-            {/* Bonus Counter - Same as Casino Page */}
-            <div className="mb-10 md:mb-14 h-36 md:h-40 relative">
-              <div className="absolute inset-0 bg-gradient-to-r from-yellow-900/30 via-yellow-800/40 to-yellow-900/30 rounded-xl md:rounded-2xl border-2 border-yellow-600/40 backdrop-blur-sm overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-yellow-500/20 to-transparent animate-shine"></div>
-                
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-4 md:p-6">
-                  <div className="text-yellow-300 text-sm md:text-base font-bold tracking-widest uppercase mb-2 md:mb-3 flex items-center gap-2">
-                    <div className="w-2 h-2 md:w-3 md:h-3 bg-yellow-400 rounded-full animate-pulse"></div>
-                    লাইউ উইন্স কাউন্টার
-                    <div className="w-2 h-2 md:w-3 md:h-3 bg-yellow-400 rounded-full animate-pulse"></div>
-                  </div>
-                  
-                  <div className="text-2xl md:text-4xl lg:text-5xl font-black text-yellow-200 font-mono tracking-wider mb-1 md:mb-2">
-                    ৳ {formatNumber(bonusAmount)}
-                  </div>
-                  
-                  <div className="text-yellow-500/70 text-xs md:text-sm font-medium">
-                    প্রতি সেকেন্ডে বাড়ছে +৳১০
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 9 Featured Casino Games */}
-            <div className="mb-10 md:mb-14">
-              <div className="flex items-center justify-between mb-4 md:mb-6">
-                <div className="text-white text-sm md:text-base font-medium">
-                  ৯টি সেরা গেমস
-                </div>
-                <Link 
-                  href="/casino" 
-                  className="text-xs md:text-sm text-purple-400 hover:text-purple-300 transition-colors"
-                >
-                  সব দেখুন →
-                </Link>
-              </div>
-              
-              <div className="grid grid-cols-3 md:grid-cols-5 gap-3 md:gap-4">
-                {featuredCasinoGames.map((game) => (
-                  <div
-                    key={game.game_code}
-                    onClick={() => launchCasinoGame(game)}
-                    className="group relative transition-all duration-300 hover:scale-105 cursor-pointer"
-                  >
-                    <div className="aspect-square rounded-lg md:rounded-xl overflow-hidden bg-gradient-to-br from-gray-900 to-black border border-gray-800 hover:border-purple-500/50 shadow-lg">
-                      {game.game_img ? (
-                        <img
-                          src={game.game_img}
-                          alt={game.game_name}
-                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <div className="text-xl md:text-2xl">🎮</div>
-                        </div>
-                      )}
-                      
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent opacity-70"></div>
-                      
-                      <div className="absolute bottom-0 left-0 right-0 p-1.5 md:p-2 bg-gradient-to-t from-black/90 to-transparent">
-                        <div className="text-white text-xs md:text-sm font-medium truncate text-center">
-                          {game.game_name}
-                        </div>
-                      </div>
-                      
-                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <div className="bg-purple-600/90 px-4 py-2 rounded-full text-white text-xs font-bold">
-                          খেলুন
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Premium Providers */}
-            <div className="mb-10 md:mb-14">
-              <div className="flex items-center justify-center mb-4 md:mb-6">
-                <div className="w-8 md:w-12 h-0.5 bg-gradient-to-r from-transparent via-purple-500 to-transparent"></div>
-                <h3 className="text-sm md:text-base font-bold text-white mx-3 md:mx-4">
-                  প্রিমিয়াম প্রোভাইডার
-                </h3>
-                <div className="w-8 md:w-12 h-0.5 bg-gradient-to-r from-transparent via-purple-500 to-transparent"></div>
-              </div>
-              
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
-                {casinoProviders.map((provider) => (
-                  <Link
-                    key={provider.brand_id}
-                    href={`/casino/providers/${provider.brand_id}/games`}
-                    className={`group relative rounded-xl md:rounded-2xl overflow-hidden transition-all duration-300 hover:scale-105 ${provider.bgClass} ${provider.borderClass}`}
-                  >
-                    <div className="aspect-[3/1] md:aspect-[16/9] flex items-center justify-center p-3 md:p-6">
-                      <div className="w-full h-full flex items-center justify-center p-1 md:p-4">
-                        {provider.logo ? (
-                          <img
-                            src={provider.logo}
-                            alt={provider.brand_title}
-                            className="max-w-full max-h-16 md:max-h-full object-contain" 
-                          />
-                        ) : (
-                          <div className="text-2xl md:text-4xl">🎰</div>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <div className="absolute bottom-0 left-0 right-0 p-2 md:p-4 bg-gradient-to-t from-black/80 to-transparent">
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-
-            {/* Go to Casino CTA */}
-            <div className="text-center mb-12 md:mb-16">
-              <div className="text-gray-300 text-sm md:text-base mb-4">
-                আরও ৫০০+ প্রিমিয়াম গেমসের জন্য
-              </div>
-              <Link
-                href="/casino"
-                className="inline-flex items-center gap-2 px-8 py-3 md:px-10 md:py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-full text-white text-sm md:text-base font-bold hover:shadow-xl hover:shadow-purple-500/40 transition-all hover:scale-105"
-              >
-                <span>পুরো ক্যাসিনো দেখুন</span>
-                <span className="text-lg md:text-xl">→</span>
-              </Link>
-            </div>
-          </section>
-
-          {/* Original Games Section - Updated
-          // <section className="max-w-6xl mx-auto mt-8 px-4">
-          //   <h2 className="text-3xl font-bold mb-8 text-white">
-          //     🔴 {t.runningMatch}
-          //   </h2>
-
-          //   <div className="grid md:grid-cols-2 gap-6">
-          //     <GameRoomCard
-          //       title={t.callbreakTitle}
-          //       description={t.callbreakDesc}
-          //       players="3/4"
-          //       badge={t.running}
-          //       gameImage="/images/card-game.jpg"
-          //       onJoin={() => requireAuth(() => openInstantMatchModal("callbreak"))}
-          //     />
-
-          //     <GameRoomCard
-          //       title={t.sevenTitle}
-          //       description={t.sevenDesc}
-          //       players="3/4"
-          //       badge={t.started}
-          //       gameImage="/images/sevencall-img-demo.jpg"
-          //       onJoin={() => requireAuth(() => openInstantMatchModal("seven"))}
-          //     />
-
-          //     <GameRoomCard
-          //       title={t.ludoTitle}
-          //       description={t.ludoDesc}
-          //       players="3/4"
-          //       badge={t.running}
-          //       gameImage="/images/ludo.jpg"
-          //       onJoin={() => requireAuth(startDemoLudo)}
-          //     />
-          //     <InstantMatchModal
-          //       open={showModal}
-          //       gameMode={selectedMode}
-          //       onClose={() => setShowModal(false)}
-          //       onStart={(config) => startInstantMatch(config)}
-          //     />
-          //   </div>
-          // </section> */}
         </main>
       </div>
 

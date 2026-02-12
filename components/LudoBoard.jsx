@@ -461,7 +461,7 @@ return (
           lineHeight: "1.2",
         }}
       >
-        AshoKheli
+        RoyalsBet
       </h1>
     </div>
 

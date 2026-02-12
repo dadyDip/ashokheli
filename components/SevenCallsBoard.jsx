@@ -433,7 +433,7 @@ export default function SevenCallsBoard() {
             className="antialiased text-2xl tracking-wide font-semibold bg-gradient-to-r from-emerald-500 to-teal-500 bg-clip-text text-transparent"
             style={{ fontFamily: "'Story Script', cursive" }}
           >
-            AshoKheli
+            RoyalsBet
           </h1>
         </div>
 

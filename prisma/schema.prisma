@@ -15,6 +15,13 @@ model User {
   phone          String?           @unique
   password       String
   balance        Int               @default(0)
+  bonusBalance    Int      @default(0)  // Separate from real balance
+  bonusTransactions BonusTransaction[]
+  bonuses        Bonus[]
+  totalBonusGiven Int      @default(0)
+  totalTurnover   Int      @default(0)
+  lastBonusClaimedAt DateTime?
+  isFirstDepositBonusClaimed Boolean @default(false)
   promoCode      String?           @unique
   referredById   String?
   lockedBalance  Int               @default(0)
@@ -30,6 +37,10 @@ model User {
   lastActiveAt   DateTime?
   role           String            @default("user")
   isAI           Boolean           @default(false)
+  transactionPassword String?
+  hasTransactionPassword Boolean @default(false)
+  dailyWithdrawCount Int @default(0)
+  lastWithdrawDate DateTime?
   casinoGames    CasinoGame[]
   casinoSpins    CasinoSpin[]
   deposits       DepositRequest[]
@@ -41,8 +52,51 @@ model User {
   referredBy     User?             @relation("UserReferral", fields: [referredById], references: [id])
   referrals      User[]            @relation("UserReferral")
   withdraws      WithdrawRequest[]
+  ewallets       EWallet[]
 }
 
+model Bonus {
+  id              String             @id @default(cuid())
+  userId          String
+  type            String             // "first_deposit", "referral", "promo", "daily", "weekly", etc.
+  amount          Int
+  originalAmount  Int                // Original bonus amount before any deductions
+  turnoverAmount  Int                // Required turnover amount (bonus * multiplier)
+  currentTurnover Int                @default(0) // Current completed turnover
+  status          String             @default("active") // active, completed, expired, cancelled
+  isWithdrawable  Boolean            @default(false) // Whether bonus amount can be withdrawn
+  expiresAt       DateTime?          // When bonus expires if not used
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  
+  // Relations
+  user            User               @relation(fields: [userId], references: [id])
+  transactions    BonusTransaction[]
+  
+  @@index([userId])
+  @@index([status])
+  @@index([type])
+  @@index([expiresAt])
+}
+
+model BonusTransaction {
+  id        String   @id @default(cuid())
+  bonusId   String
+  userId    String   // ADD THIS LINE
+  type      String   // "bet", "win", "rollback", "expire", "cancel"
+  amount    Int      // Amount affected
+  turnover  Int      // Turnover contributed
+  gameType  String?  // Casino game, sports, etc.
+  matchId   String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  
+  bonus     Bonus    @relation(fields: [bonusId], references: [id])
+  user      User     @relation(fields: [userId], references: [id]) // ADD THIS LINE
+  
+  @@index([bonusId])
+  @@index([createdAt])
+}
 model SystemWallet {
   id        String   @id @default(cuid())
   balance   Int      @default(0)
@@ -140,6 +194,7 @@ model Transaction {
   reference String?
   createdAt DateTime @default(now())
   user      User?    @relation(fields: [userId], references: [id])
+  metadata  Json?
 }
 
 model CasinoGame {
@@ -196,4 +251,24 @@ model CasinoSpin {
   @@index([matchId])
   @@index([status])
   @@index([gameRound])
+}
+
+model EWallet {
+  id             String   @id @default(cuid())
+  userId         String
+  type           String   // "bkash" or "nagad"
+  accountNumber  String
+  accountHolder  String
+  isDefault      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  user           User     @relation(fields: [userId], references: [id])
+  
+  // Change this: allow same number with different type for same user
+  @@unique([userId, accountNumber, type])
+  // Keep this: prevent same number+type across different users
+  @@unique([accountNumber, type])
+  @@index([userId])
+  @@index([accountNumber])
 }

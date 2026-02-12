@@ -83,7 +83,7 @@ export async function POST(req) {
           matchType: body.matchType,
           targetScore,
           maxPlayers,
-          host: { connect: { id: user.id } },  // ✅ CORRECT
+          host: { connect: { id: user.id } }, 
           status: "WAITING",
           isInstant: !!body.instant,
           isPublic: true,
@@ -96,6 +96,7 @@ export async function POST(req) {
     /* ===================================================== */
     /* ================= JOIN ROOM ========================= */
     /* ===================================================== */
+
     if (body.action === "JOIN") {
       if (!body.roomId) {
         return Response.json(
@@ -135,12 +136,15 @@ export async function POST(req) {
         data: {
           roomId: room.id,
           userId: user.id,
-          paid: room.entryFee > 0,
+          // Remove the paid field - it doesn't exist in your schema
         },
       });
 
-
-      return Response.json({ ok: true });
+      return Response.json({ 
+        ok: true, 
+        gameType: room.gameType,
+        entryFee: room.entryFee 
+      });
     }
 
     /* ===================================================== */
@@ -163,7 +167,6 @@ export async function POST(req) {
       { status: 400 }
     );
   } catch (err) {
-    console.error("🔥 /api/rooms ERROR", err);
     return Response.json(
       { error: "INTERNAL_SERVER_ERROR" },
       { status: 500 }

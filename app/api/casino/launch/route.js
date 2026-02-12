@@ -166,7 +166,7 @@ export async function GET(request) {
     const gameUidValue = parseInt(gameCode) || 0;
     
     // Get base URL - IMPORTANT: Must be publicly accessible
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://ashokheli.top';
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://ferally-crispate-veda.ngrok-free.dev';
     
     // Create URLs - IMPORTANT: Point to our embedded return page
     const returnUrl = `${baseUrl}/casino/return-game?matchId=${matchId}`;

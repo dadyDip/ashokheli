@@ -9,6 +9,8 @@ const normalizePhone = (phone) => {
   if (cleaned.startsWith("0")) return cleaned;
   return cleaned;
 };
+const JWT_SECRET = process.env.JWT_SECRET || "SUPER_SECRET_KEY";
+
 
 export async function POST(req) {
   try {
@@ -47,8 +49,8 @@ export async function POST(req) {
         id: user.id,      // 🔥 SAME AS BEFORE
         role: user.role,
       },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
+      JWT_SECRET,
+      { expiresIn: "365d" }
     );
 
 

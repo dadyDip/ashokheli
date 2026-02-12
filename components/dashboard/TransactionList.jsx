@@ -2,11 +2,11 @@
 
 import { useState, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/app/design/ui/dialog";
-import { ArrowDown, ArrowUp, DollarSign, X } from "lucide-react";
+import { ArrowDown, ArrowUp, X } from "lucide-react";
 import { useLang } from "@/app/i18n/useLang";
 
 export function TransactionList({ transactions }) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const [open, setOpen] = useState(false);
   const [selectedType, setSelectedType] = useState(null);
 
@@ -26,27 +26,7 @@ export function TransactionList({ transactions }) {
       filter: (tx) => (tx.type ?? "").toUpperCase() === "WITHDRAW",
       color: "bg-blue-800 hover:bg-blue-700",
       showTotal: true,
-    },
-    {
-      key: "earnings",
-      label: t.earnings || "Earnings",
-      icon: <DollarSign className="h-5 w-5 text-emerald-400" />,
-      filter: (tx) => (tx.type ?? "").toUpperCase() === "WIN",
-      color: "bg-emerald-900 hover:bg-emerald-700",
-      showTotal: true,
-    },
-    {
-      key: "losses",
-      label: t.losses || "Losses",
-      icon: <DollarSign className="h-5 w-5 text-red-400 rotate-180" />,
-      filter: (tx) => {
-        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const type = tx.type ?? "";
-        const createdAt = tx.createdAt ? new Date(tx.createdAt) : null;
-        return type.toUpperCase() === "LOSS" && createdAt && createdAt >= twentyFourHoursAgo;
-      },
-      color: "bg-red-900 hover:bg-red-700",
-    },
+    }
   ];
 
   const openModal = (type) => {
@@ -54,23 +34,59 @@ export function TransactionList({ transactions }) {
     setOpen(true);
   };
 
-  // Filtered transactions safely
+  // Filtered transactions - ALL TIME, no date restrictions
   const filtered = selectedType
     ? transactions.filter(selectedType.filter)
     : [];
 
-  // Total amounts safely
+  // Total amounts for ALL TIME
   const totalAmount = useMemo(() => {
     if (!selectedType?.showTotal) return 0;
     return filtered.reduce((sum, tx) => sum + (tx.amount ?? 0), 0);
   }, [filtered, selectedType]);
 
+  // Sort transactions by date (newest first)
+  const sortedFiltered = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      const dateA = a.createdAt ? new Date(a.createdAt) : new Date(0);
+      const dateB = b.createdAt ? new Date(b.createdAt) : new Date(0);
+      return dateB - dateA;
+    });
+  }, [filtered]);
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    if (date.toDateString() === today.toDateString()) {
+      return lang === 'bn' ? 'আজ' : 'Today';
+    } else if (date.toDateString() === yesterday.toDateString()) {
+      return lang === 'bn' ? 'গতকাল' : 'Yesterday';
+    } else {
+      return date.toLocaleDateString(lang === 'bn' ? 'bn-BD' : 'en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric'
+      });
+    }
+  };
+
+  const formatTime = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString(lang === 'bn' ? 'bn-BD' : 'en-GB', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   return (
     <section className="space-y-4">
       <h2 className="text-xl font-semibold text-white">{t.recentTransactions || "Recent Transactions"}</h2>
 
-      {/* BUTTONS */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {/* BUTTONS - Only 2 now */}
+      <div className="grid grid-cols-2 gap-3">
         {types.map((type) => (
           <button
             key={type.key}
@@ -95,51 +111,80 @@ export function TransactionList({ transactions }) {
             </button>
           </DialogHeader>
 
-          {/* Show total amount for deposits, withdrawals, or earnings */}
-          {selectedType?.showTotal && filtered.length > 0 && (
-            <div className="text-lg font-bold my-2 text-white/90">
-              {selectedType.key === "earnings" && `${t.totalWins || "Total Wins"}: ৳ ${(totalAmount / 100).toFixed(2)}`}
-              {selectedType.key === "withdraw" && `${t.totalWithdraw || "Total Withdraw"}: ৳ ${(totalAmount / 100).toFixed(2)}`}
-              {selectedType.key === "deposit" && `${t.totalDeposit || "Total Deposit"}: ৳ ${(totalAmount / 100).toFixed(2)}`}
+          {/* Show total amount - ALL TIME */}
+          {selectedType?.showTotal && sortedFiltered.length > 0 && (
+            <div className="text-lg font-bold my-2 text-white/90 p-3 bg-white/5 rounded-lg">
+              {selectedType.key === "withdraw" && `${t.totalWithdraw || "Total Withdrawn"}: ৳ ${(totalAmount / 100).toFixed(2)}`}
+              {selectedType.key === "deposit" && `${t.totalDeposit || "Total Deposited"}: ৳ ${(totalAmount / 100).toFixed(2)}`}
+              <span className="text-xs text-white/50 ml-2">
+                ({sortedFiltered.length} {sortedFiltered.length === 1 ? 'transaction' : 'transactions'})
+              </span>
             </div>
           )}
 
           <div className="space-y-2 max-h-[60vh] overflow-y-auto mt-2">
-            {filtered.length === 0 ? (
-              <p className="text-white/40 p-4">
-                {selectedType?.key === "losses"
-                  ? t.noTransactions48h || "No losses in last 48 hours"
-                  : t.noTransactions || "No transactions yet"}
+            {sortedFiltered.length === 0 ? (
+              <p className="text-white/40 p-4 text-center">
+                {t.noTransactions || "No transactions yet"}
               </p>
             ) : (
-              filtered.map((tx) => {
+              sortedFiltered.map((tx) => {
                 const type = tx.type ?? "UNKNOWN";
                 const amount = tx.amount ?? 0;
                 const createdAt = tx.createdAt ? new Date(tx.createdAt) : new Date();
                 const status = tx.status ?? "Unknown";
+                const isDeposit = type.toUpperCase() === "DEPOSIT";
 
                 return (
                   <div
                     key={tx.id}
-                    className={`flex justify-between items-center p-3 rounded-lg hover:bg-gray-800 transition ${
-                      amount > 0 ? "bg-emerald-800/20" : "bg-red-800/20"
-                    }`}
+                    className="flex justify-between items-center p-3 rounded-lg bg-gray-800/50 hover:bg-gray-700/50 transition border border-white/5"
                   >
                     <div className="flex flex-col">
-                      <p className="font-medium text-sm">{type}</p>
-                      <p className="text-xs text-white/60">
-                        {status} - {createdAt.toLocaleString()}
+                      <div className="flex items-center gap-2">
+                        {isDeposit ? (
+                          <ArrowDown className="h-4 w-4 text-emerald-400" />
+                        ) : (
+                          <ArrowUp className="h-4 w-4 text-blue-400" />
+                        )}
+                        <p className="font-medium text-sm text-white">
+                          {type}
+                        </p>
+                      </div>
+                      <p className="text-xs text-white/50 mt-1">
+                        {formatDate(createdAt)} at {formatTime(createdAt)}
                       </p>
-                      {tx.provider && <p className="text-xs text-white/50">({tx.provider})</p>}
+                      {tx.provider && (
+                        <p className="text-xs text-white/40 mt-0.5">
+                          via {tx.provider} {tx.reference && `• ${tx.reference.slice(-4)}`}
+                        </p>
+                      )}
+                      <p className="text-xs text-white/40 mt-0.5">
+                        Status: <span className={`${status === 'APPROVED' ? 'text-emerald-400' : status === 'PENDING' ? 'text-yellow-400' : 'text-red-400'}`}>
+                          {status}
+                        </span>
+                      </p>
                     </div>
-                    <p className={`font-semibold ${amount > 0 ? "text-emerald-400" : "text-red-400"}`}>
-                      ৳ {(amount / 100).toFixed(2)}
-                    </p>
+                    <div className="text-right">
+                      <p className={`font-bold ${isDeposit ? 'text-emerald-400' : 'text-blue-400'}`}>
+                        ৳ {(amount / 100).toFixed(2)}
+                      </p>
+                      <p className="text-xs text-white/40 mt-1">
+                        {tx.id?.slice(-8)}
+                      </p>
+                    </div>
                   </div>
                 );
               })
             )}
           </div>
+
+          {/* Summary Footer */}
+          {sortedFiltered.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-white/10 text-xs text-white/40 text-center">
+              {t.showingAll || "Showing all records from account creation"}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </section>

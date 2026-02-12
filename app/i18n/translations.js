@@ -13,8 +13,8 @@ export const translations = {
 
     running: "Running",
     started: "Started",
-    heroTitleMain: "Play cards with your friends",
-    heroTitleSub: "A full real-time multiplayer system",
+    heroTitleMain: "Play Real Tash with Friends",
+    heroTitleSub: "Or see casino section for all slot & casino games",
 
     cardGames: "Card Games",
     ludo: "Ludo",
@@ -52,7 +52,7 @@ export const translations = {
     paid: "Paid",
     entryFee: "Entry Fee",
     startMatch: "Start Match",
-    demoBalance: "Demo Balance",
+    demoBalance: "Balance",
     userId: "User ID",
     playerId: "Player ID",
     totalDeposited: "Deposited",
@@ -149,8 +149,8 @@ export const translations = {
 
     running: "রানিং ম্যাচ",
     started: "শুরু হয়েছে",
-    heroTitleMain: "রুম বানিয়ে বন্ধুদের সাথে খেলুন",
-    heroTitleSub: "৪ জন একসাথে রিয়েল টাইম কার্ড গেম",
+    heroTitleMain: "বন্ধুদের সাথে আসল তাস খেলুন",
+    heroTitleSub: "বা ক্যাসিনো সেকশনে দেখুন সব স্লট ও ক্যাসিনো গেমস",
 
     cardGames: "কার্ড গেম",
     ludo: "লুডু",
@@ -186,7 +186,7 @@ export const translations = {
     paid: "বাজি",
     entryFee: "এন্ট্রি ফি",
     startMatch: "ম্যাচ শুরু করুন",
-    demoBalance: "ডেমো ব্যালেন্স",
+    demoBalance: "ব্যালেন্স",
     userId: "ইউজার আইডি",
     playerId: "প্লেয়ার আইডি",
     totalDeposited: "মোট জমা",

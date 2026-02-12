@@ -19,6 +19,7 @@ export function Providers({ children }) {
                      pathname.startsWith("/casino/return-game");
 
   const isDashboard = pathname.startsWith("/dashboard");
+  const isDepositPage = pathname === "/dashboard/deposit" || pathname?.includes("/dashboard/deposit");
 
   // Check if we're on external casino provider pages (optional, if you want to hide there too)
   const isExternalCasinoPage = () => {
@@ -59,6 +60,7 @@ export function Providers({ children }) {
             pb-16
             transition-all duration-300
             ${!hideLayout && !isDashboard ? "lg:ml-[var(--sidebar-width)]" : ""}
+            ${isDepositPage ? "deposit-page-main" : ""}
           `}
           style={{
             '--sidebar-width': '16rem'
@@ -66,6 +68,48 @@ export function Providers({ children }) {
         >
           {children}
         </main>
+
+        {/* Fix for deposit page button getting cut off */}
+        <style jsx global>{`
+          @media (max-width: 1023px) {
+            .deposit-page-main {
+              padding-bottom: 80px !important;
+              margin-bottom: 0 !important;
+            }
+            
+            /* Ensure deposit modal content is scrollable */
+            [data-radix-dialog-content] {
+              max-height: 85vh !important;
+              overflow-y: auto !important;
+              -webkit-overflow-scrolling: touch;
+            }
+            
+            /* Fix for floating add button on withdraw page */
+            .fixed.right-6.bottom-24 {
+              bottom: 90px !important;
+              z-index: 60 !important;
+            }
+            
+            /* Ensure all dashboard content has proper bottom spacing */
+            .pt-24.pb-10 {
+              padding-bottom: 40px !important;
+            }
+            
+            /* Fix for submit buttons getting cut off */
+            button.w-full.bg-red-600.text-white.py-4.rounded-xl {
+              margin-bottom: 20px !important;
+            }
+            
+            /* Add safe area for notched phones */
+            @supports (padding-bottom: env(safe-area-inset-bottom)) {
+              .deposit-page-main,
+              .pt-24.pb-10,
+              [data-radix-dialog-content] {
+                padding-bottom: calc(env(safe-area-inset-bottom) + 20px) !important;
+              }
+            }
+          }
+        `}</style>
       </SocketProvider>
     </AuthProvider>
   );

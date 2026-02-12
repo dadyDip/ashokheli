@@ -29,6 +29,13 @@ export default function AdminPage() {
           <h2 className="text-xl font-semibold">👥 Manage Users</h2>
           <p className="text-sm text-gray-400">View & manage all players</p>
         </Link>
+        <Link
+          href="/admin/subagents"
+          className="rounded-xl bg-gray-900 p-6 border border-orange-500/30 hover:bg-gray-800 transition"
+        >
+          <h2 className="text-xl font-semibold">👥 Sub-Agents</h2>
+          <p className="text-sm text-gray-400">Manage sub-agents & commissions</p>
+        </Link>
 
         <Link
           href="/admin/blog"

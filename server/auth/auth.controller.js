@@ -3,8 +3,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 
-
-const JWT_SECRET = "SUPER_SECRET_KEY"; // move to .env later
+const JWT_SECRET = process.env.JWT_SECRET || "SUPER_SECRET_KEY";
 const DEMO_BALANCE = 10; // 1000 TK in paisa
 const JOIN_BONUS = 10; // 1000 TK for new user with promo code
 const INVITER_BONUS = 10; // 500 TK for inviter
@@ -56,7 +55,8 @@ export const register = async (req, res) => {
     const newPromoCode =
       "DOF" + uuidv4().replace(/-/g, "").slice(0, 6).toUpperCase();
 
-    let startingBalance = DEMO_BALANCE;
+    // 🔥 NO STARTING BALANCE - Set to 0
+    let startingBalance = 0; // Changed from DEMO_BALANCE to 0
 
     // 🔥 NEW: Get next casinoId
     const lastUser = await prisma.user.findFirst({
@@ -65,88 +65,59 @@ export const register = async (req, res) => {
     
     const nextCasinoId = (lastUser?.casinoId || 999) + 1;
 
-    // Create user in a transaction to ensure data consistency
-    const result = await prisma.$transaction(async (prisma) => {
-      // Create user
-      const user = await prisma.user.create({
-        data: {
-          firstName,
-          lastName,
-          phone,
-          password: hashedPassword,
-          balance: startingBalance,
-          promoCode: newPromoCode,
-          referredById: inviter?.id || null,
-          casinoId: nextCasinoId,
-        },
-      });
-
-      // Create welcome bonus transaction
-      await prisma.transaction.create({
-        data: {
-          userId: user.id,
-          type: "DEMO_CREDIT",
-          amount: startingBalance,
-          status: "COMPLETED",
-          reference: "WELCOME_BONUS",
-          description: "Welcome bonus for new registration",
-        },
-      });
-
-      // If inviter exists, give referral bonus
-      if (inviter) {
-        await prisma.user.update({
-          where: { id: inviter.id },
-          data: { balance: { increment: INVITER_BONUS } },
-        });
-
-        await prisma.transaction.create({
-          data: {
-            userId: inviter.id,
-            type: "REFERRAL_REWARD",
-            amount: INVITER_BONUS,
-            status: "COMPLETED",
-            reference: `INVITED_${user.id}`,
-            description: `Referral bonus for inviting ${user.firstName} ${user.lastName}`,
-          },
-        });
-      }
-
-      // Generate JWT token for auto-login
-      const token = jwt.sign(
-        {
-          id: user.id,
-          phone: user.phone,
-          role: user.role,
-        },
-        process.env.JWT_SECRET || JWT_SECRET,
-        { expiresIn: "365d" }
-      );
-
-      return { user, token };
+    // Create user with ZERO balance
+    const user = await prisma.user.create({
+      data: {
+        firstName,
+        lastName,
+        phone,
+        password: hashedPassword,
+        balance: startingBalance, // 0 balance
+        promoCode: newPromoCode,
+        referredById: inviter?.id || null,
+        casinoId: nextCasinoId,
+      },
     });
 
-    // Return response with auto-login token
+    // If inviter exists, give referral bonus (but new user gets nothing)
+    if (inviter) {
+      await prisma.user.update({
+        where: { id: inviter.id },
+        data: { balance: { increment: INVITER_BONUS } },
+      });
+    }
+
+    // Generate JWT token for auto-login
+    const token = jwt.sign(
+      {
+        id: user.id,
+        phone: user.phone,
+        role: user.role,
+      },
+      process.env.JWT_SECRET || JWT_SECRET,
+      { expiresIn: "365d" }
+    );
+
+    // Return response
     res.json({
       success: true,
-      message: "Registered successfully",
-      token: result.token, // Auto-login token
+      message: "Registered successfully - Please deposit to start playing",
+      token,
       user: {
-        id: result.user.id,
-        firstName: result.user.firstName,
-        lastName: result.user.lastName,
-        phone: result.user.phone,
-        balance: result.user.balance,
-        promoCode: result.user.promoCode,
-        casinoId: result.user.casinoId,
-        createdAt: result.user.createdAt,
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
+        balance: user.balance, // Will be 0
+        promoCode: user.promoCode,
+        casinoId: user.casinoId,
+        createdAt: user.createdAt,
       },
     });
 
   } catch (err) {
     console.error("Registration error:", err);
     
-    // Handle specific Prisma errors
     if (err.code === 'P2002') {
       return res.status(400).json({ 
         error: "Phone number already registered" 
@@ -158,7 +129,6 @@ export const register = async (req, res) => {
     });
   }
 };
-
 // ================= LOGIN =================
 export const login = async (req, res) => {
   try {

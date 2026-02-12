@@ -106,9 +106,9 @@ export default function CasinoPage() {
       providerName: "PGSoft"
     },
     {
-      game_code: "149",
-      game_name: "Jungle Delight",
-      game_img: "https://softapi2.shop/uploads/games/jungle-delight-232e8e0c74f9bb16ab676e5ed49d72b4.png",
+      game_code: "916",
+      game_name: "Wild Bounty Showdown",
+      game_img: "https://softapi2.shop/uploads/games/wild-bounty-showdown-c98bb64436826fe9a2c62955ff70cba9.png",
       category: "Slots",
       providerId: "45",
       providerName: "PGSoft"
@@ -416,10 +416,26 @@ export default function CasinoPage() {
       setLoading(false);
     }, 800);
 
-    // Bonus counter animation
-    let currentAmount = 1010000;
+    // Bonus counter animation - MORE IMPRESSIVE NUMBERS
+    // Start from 250M+ for more impact
+    const randomStart = Math.floor(Math.random() * 150000000) + 250000000; // 250M-400M
+    let currentAmount = randomStart;
+    setBonusAmount(currentAmount);
+
     const incrementInterval = setInterval(() => {
-      currentAmount += 10;
+      // Variable increments for more dynamic feel
+      const randomMultiplier = Math.random();
+      let increment;
+      
+      if (randomMultiplier < 0.7) {
+        increment = 50; // 70% chance: +50
+      } else if (randomMultiplier < 0.9) {
+        increment = 100; // 20% chance: +100
+      } else {
+        increment = 500; // 10% chance: +500 (jackpot feel)
+      }
+      
+      currentAmount += increment;
       setBonusAmount(currentAmount);
     }, 1000);
 
@@ -501,6 +517,21 @@ export default function CasinoPage() {
     }
   };
 
+  const [jackpotAmount, setJackpotAmount] = useState(256732890);
+  const [jackpotDigits, setJackpotDigits] = useState(["6", "5", "3", "7", "7", "3", "6", "8", ".", "1"]);
+  // Jackpot auto increment
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setJackpotAmount(prev => prev + Math.floor(Math.random() * 100));
+      
+      // Update digits without commas
+      const newAmount = (jackpotAmount + Math.floor(Math.random() * 100)).toString();
+      // Remove commas, just keep digits and dot
+      const digits = newAmount.split('').filter(char => char !== ',');
+      setJackpotDigits([...digits]);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [jackpotAmount]);
 
   // Format number with commas
   const formatNumber = (num) => {
@@ -600,31 +631,63 @@ export default function CasinoPage() {
               </div>
             </div>
 
-            {/* SECTION 2: Live Wins Counter */}
-            <div className="mb-10 md:mb-14 h-36 md:h-40 relative">
-              <div className="absolute inset-0 bg-gradient-to-r from-yellow-900/30 via-yellow-800/40 to-yellow-900/30 rounded-xl md:rounded-2xl border-2 border-yellow-600/40 backdrop-blur-sm overflow-hidden">
-                {/* Shine effect */}
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-yellow-500/20 to-transparent animate-shine"></div>
+            {/* ===== JACKPOT BANNER ===== - FIXED FOR DESKTOP */}
+            <div className="mt-3 md:mt-4 lg:mt-6">
+              <div className="relative rounded-xl md:rounded-2xl overflow-hidden border-0 h-[140px] md:h-[160px] lg:h-[200px] xl:h-[220px] group">
+                <div className="absolute inset-0">
+                  <img 
+                    src="/jackpot-img.jpg" 
+                    alt="Jackpot"
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-1000"
+                    onError={(e) => {
+                      e.currentTarget.style.background = 'linear-gradient(135deg, #8B0000 0%, #B22222 50%, #8B0008 100%)';
+                    }}
+                  />
+                  <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+                </div>
                 
-                {/* Center Content */}
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-4 md:p-6">
-                  {/* Title */}
-                  <div className="text-yellow-300 text-sm md:text-base font-bold tracking-widest uppercase mb-2 md:mb-3 flex items-center gap-2">
-                    <div className="w-2 h-2 md:w-3 md:h-3 bg-yellow-400 rounded-full animate-pulse"></div>
-                    Live Wins Counter
-                    <div className="w-2 h-2 md:w-3 md:h-3 bg-yellow-400 rounded-full animate-pulse"></div>
-                  </div>
-                  
-                  {/* Main Counter */}
-                  <div className="text-2xl md:text-4xl lg:text-5xl font-black text-yellow-200 font-mono tracking-wider mb-1 md:mb-2">
-                    ৳ {formatNumber(bonusAmount)}
-                  </div>
-                  
-                  {/* Subtitle */}
-                  <div className="text-yellow-500/70 text-xs md:text-sm font-medium">
-                    Increasing every second +৳10
+                <div className="absolute inset-0 flex items-end justify-center pb-8 md:pb-10 lg:pb-12 px-2">
+                  <div className="flex items-end justify-center gap-1 md:gap-2 lg:gap-3 w-full">
+                    <div className="relative">
+                      <div className="w-8 h-10 md:w-12 md:h-16 lg:w-16 lg:h-20 xl:w-20 xl:h-24 rounded-lg lg:rounded-xl bg-gradient-to-b from-red-700 via-red-800 to-red-900 border-2 border-yellow-400/50 shadow-2xl shadow-red-900/60 flex items-center justify-center">
+                        <span className="text-xl md:text-3xl lg:text-4xl xl:text-5xl font-black text-yellow-300 drop-shadow-[0_0_6px_rgba(255,215,0,0.7)]">৳</span>
+                      </div>
+                      <div className="absolute inset-0 rounded-lg lg:rounded-xl bg-red-600 blur-md opacity-40 -z-10"></div>
+                    </div>
+                    
+                    <div className="flex items-end gap-1 md:gap-2 lg:gap-3">
+                      {jackpotDigits.map((digit, idx) => (
+                        <div key={idx} className="relative">
+                          <div className={`
+                            rounded-lg lg:rounded-xl bg-gradient-to-b from-red-700 via-red-800 to-red-900 
+                            border-2 border-yellow-400/50 shadow-2xl shadow-red-900/60
+                            flex items-center justify-center
+                            ${digit === '.' 
+                              ? 'w-2 h-4 md:w-3 md:h-6 lg:w-4 lg:h-8 bg-yellow-400/80 border-yellow-400/60' 
+                              : 'w-7 h-10 md:w-11 md:h-16 lg:w-14 lg:h-20 xl:w-16 xl:h-24'
+                            }
+                            transition-all duration-300 hover:scale-105
+                          `}>
+                            {digit === '.' ? (
+                              <span className="text-sm md:text-base lg:text-lg font-black text-yellow-300">•</span>
+                            ) : (
+                              <span className="text-lg md:text-3xl lg:text-4xl xl:text-5xl font-black text-yellow-100 drop-shadow-[0_0_6px_rgba(255,255,255,0.4)]">
+                                {digit}
+                              </span>
+                            )}
+                          </div>
+                          
+                          {digit !== '.' && (
+                            <div className="absolute inset-0 rounded-lg lg:rounded-xl bg-red-600 blur-md opacity-30 -z-10"></div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
+                
+                <div className="absolute top-0 left-0 right-0 h-[2px] lg:h-[3px] bg-gradient-to-r from-transparent via-yellow-400/30 to-transparent"></div>
+                <div className="absolute bottom-0 left-0 right-0 h-[2px] lg:h-[3px] bg-gradient-to-r from-transparent via-red-500/30 to-transparent"></div>
               </div>
             </div>
 

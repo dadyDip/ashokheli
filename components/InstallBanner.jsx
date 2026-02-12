@@ -46,8 +46,8 @@ export default function InstallBanner() {
   return (
     <div className="w-full bg-emerald-700 text-white flex items-center justify-between px-4 py-2 sticky top-16 z-40">
       <div className="flex items-center gap-2">
-        <img src="/icon-192x192.png" alt="AshoKheli" className="h-8 w-8 rounded" />
-        <span className="font-semibold">Install AshoKheli App</span>
+        <img src="/icon-192.png" alt="RoyalsBet" className="h-8 w-8 rounded" />
+        <span className="font-semibold">Install RoyalsBet App</span>
       </div>
       <button
         onClick={handleInstall}
